@@ -2,7 +2,7 @@
   "name": "sql-query-chat-zing-play",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://nguyen-manh-tung.github.io/sql-query-chat-zing-play/",
+  "homepage": "https://nmnhut-it.github.io/sql-query-chat-zing-play/",
   "type": "module",
   "scripts": {
     "dev": "vite",

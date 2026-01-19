@@ -22,6 +22,7 @@ An AI-powered SQL query interface built with DuckDB-Wasm and OpenAI.
 This project is configured for GitHub Pages.
 
 1. Create a repository on GitHub.
-2. Link your local repo: `git remote add origin https://github.com/<username>/<repo-name>.git`
+2. Link your local repo: `git remote add origin https://github.com/nmnhut-it/sql-query-chat-zing-play.git`
 3. Update `package.json` `"homepage"` and `vite.config.ts` `"base"`.
 4. Deploy: `npm run deploy`
+Your app will then be live at `https://nmnhut-it.github.io/sql-query-chat-zing-play/`!

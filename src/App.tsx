@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm';
+import * as duckdb from '@duckdb/duckdb-wasm';
 
 export default function DuckQuery() {
     const [db, setDb] = useState<any>(null);
@@ -29,7 +29,7 @@ export default function DuckQuery() {
     // Import state
     const [importing, setImporting] = useState(false);
     const [importProgress, setImportProgress] = useState(0);
-    const fileInputRef = useRef(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Initialize DuckDB
     useEffect(() => {
@@ -49,7 +49,7 @@ export default function DuckQuery() {
                 setDb(database);
                 setConn(connection);
                 setLoading(false);
-            } catch (err) {
+            } catch (err: any) {
                 setError('Failed to initialize DuckDB: ' + err.message);
                 setLoading(false);
             }
@@ -62,22 +62,22 @@ export default function DuckQuery() {
         if (!conn) return;
         try {
             const tableResult = await conn.query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`);
-            const tableNames = tableResult.toArray().map(r => r.table_name);
+            const tableNames = tableResult.toArray().map((r: any) => r.table_name);
             setTables(tableNames);
 
-            const schemaObj = {};
+            const schemaObj: Record<string, { name: string, type: string }[]> = {};
             for (const table of tableNames) {
                 const colResult = await conn.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${table}'`);
-                schemaObj[table] = colResult.toArray().map(r => ({ name: r.column_name, type: r.data_type }));
+                schemaObj[table] = colResult.toArray().map((r: any) => ({ name: r.column_name, type: r.data_type }));
             }
             setSchema(schemaObj);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Schema refresh error:', err);
         }
     }, [conn]);
 
     // Import CSV
-    const handleFileImport = async (e) => {
+    const handleFileImport = async (e: any) => {
         const file = e.target.files?.[0];
         if (!file || !db || !conn) return;
 
@@ -102,7 +102,7 @@ export default function DuckQuery() {
                 setImporting(false);
                 setImportProgress(0);
             }, 500);
-        } catch (err) {
+        } catch (err: any) {
             setError('Import failed: ' + err.message);
             setImporting(false);
         }
@@ -196,7 +196,7 @@ Only output the corrected raw SQL query, nothing else. No markdown, no explanati
             const sql = data.choices[0].message.content.trim().replace(/```sql\n?|\n?```/g, '');
             setSqlQuery(sql);
             setError(null);
-        } catch (err) {
+        } catch (err: any) {
             setError('Failed to fix SQL: ' + err.message);
         }
 
@@ -212,10 +212,10 @@ Only output the corrected raw SQL query, nothing else. No markdown, no explanati
 
         try {
             const result = await conn.query(sqlQuery);
-            const cols = result.schema.fields.map(f => f.name);
-            const rows = result.toArray().map(r => {
-                const obj = {};
-                cols.forEach(c => { obj[c] = r[c]; });
+            const cols = result.schema.fields.map((f: any) => f.name);
+            const rows = result.toArray().map((r: any) => {
+                const obj: any = {};
+                cols.forEach((c: any) => { obj[c] = r[c]; });
                 return obj;
             });
 
