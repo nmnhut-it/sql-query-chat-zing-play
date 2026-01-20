@@ -257,7 +257,7 @@ export default function DuckQuery() {
 
             {/* Discovery */}
             {discovery && (
-              <div className="border-t border-gray-700 p-3">
+              <div className="border-t border-gray-700 p-3 max-h-64 overflow-auto">
                 <h2 className="text-xs font-semibold text-purple-400 uppercase tracking-wide mb-2">
                   Discovery
                 </h2>
