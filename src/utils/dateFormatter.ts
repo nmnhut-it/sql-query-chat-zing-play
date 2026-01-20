@@ -48,10 +48,39 @@ export const isDateColumn = (columnName: string): boolean => {
 /**
  * Format a cell value for display.
  * Automatically formats timestamps based on column name or value detection.
+ * Handles BigInt and object types from DuckDB.
  */
 export const formatCellValue = (value: unknown, columnName?: string): string => {
   if (value === null || value === undefined) {
     return '';
+  }
+
+  // Handle BigInt (common in DuckDB for large integers)
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+
+  // Handle objects (DuckDB may return wrapped values)
+  if (typeof value === 'object') {
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return JSON.stringify(value);
+    }
+    // Handle Date objects
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    // Try to extract primitive value from wrapper objects
+    const obj = value as Record<string, unknown>;
+    if ('value' in obj && (typeof obj.value === 'number' || typeof obj.value === 'bigint' || typeof obj.value === 'string')) {
+      return String(obj.value);
+    }
+    // Fallback: stringify the object
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Complex Object]';
+    }
   }
 
   const shouldCheckTimestamp = columnName ? isDateColumn(columnName) : false;
