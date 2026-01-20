@@ -13,6 +13,7 @@ interface UseDuckDBReturn {
   db: duckdb.AsyncDuckDB | null;
   conn: duckdb.AsyncDuckDBConnection | null;
   loading: boolean;
+  schemaLoading: boolean;
   error: string | null;
   tables: string[];
   schema: DatabaseSchema;
@@ -27,6 +28,7 @@ export const useDuckDB = (): UseDuckDBReturn => {
   const [db, setDb] = useState<duckdb.AsyncDuckDB | null>(null);
   const [conn, setConn] = useState<duckdb.AsyncDuckDBConnection | null>(null);
   const [loading, setLoading] = useState(true);
+  const [schemaLoading, setSchemaLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tables, setTables] = useState<string[]>([]);
   const [schema, setSchema] = useState<DatabaseSchema>({});
@@ -67,6 +69,7 @@ export const useDuckDB = (): UseDuckDBReturn => {
   const refreshSchema = useCallback(async () => {
     if (!conn) return;
 
+    setSchemaLoading(true);
     try {
       const tableResult = await conn.query(
         `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`
@@ -111,10 +114,23 @@ export const useDuckDB = (): UseDuckDBReturn => {
         schemaObj[table] = { columns: cols, samples, stats };
       }
       setSchema(schemaObj);
+
+      // Small delay to ensure state update propagates to components
+      // This prevents race condition where schemaLoading=false but schema state hasn't updated yet
+      await new Promise(resolve => setTimeout(resolve, 50));
     } catch (err) {
       console.error('Schema refresh error:', err);
+    } finally {
+      setSchemaLoading(false);
     }
   }, [conn]);
+
+  // Auto-populate schema when connection is established
+  useEffect(() => {
+    if (conn && !loading) {
+      refreshSchema();
+    }
+  }, [conn, loading, refreshSchema]);
 
   /** Execute SQL query and return results */
   const executeQuery = useCallback(
@@ -239,6 +255,7 @@ export const useDuckDB = (): UseDuckDBReturn => {
     db,
     conn,
     loading,
+    schemaLoading,
     error,
     tables,
     schema,

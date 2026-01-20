@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDuckDB, useAI } from './hooks';
 import { SimpleChat } from './components/chat/SimpleChat';
 import { parseError } from './utils/errorHandler';
-import { DEFAULT_PROMPTS, SCHEMA_PLACEHOLDER } from './constants/aiPrompts';
+import { DEFAULT_PROMPTS } from './constants/aiPrompts';
 import type { HistoryEntry } from './types';
 
 export default function DuckQuery() {
@@ -17,6 +17,7 @@ export default function DuckQuery() {
     error: dbError,
     tables,
     schema,
+    schemaLoading,
     executeQuery,
     loadSampleData,
     importCsv,
@@ -313,7 +314,11 @@ export default function DuckQuery() {
               )}
 
               {/* Simple Chat */}
-              <SimpleChat />
+              <SimpleChat
+                  schema={schema}
+                  schemaLoading={schemaLoading}
+                  executeQuery={executeQuery}
+                />
             </main>
           </div>
         </div>
@@ -399,7 +404,7 @@ export default function DuckQuery() {
                       SQL Generation Prompt
                     </label>
                     <p className="text-xs text-gray-500 mb-2">
-                      Use {SCHEMA_PLACEHOLDER} where the schema should be inserted.
+                      Schema is automatically included in user messages when tables exist.
                     </p>
                     <textarea
                       value={editedPrompt}

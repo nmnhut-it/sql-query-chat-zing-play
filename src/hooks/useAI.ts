@@ -7,12 +7,12 @@ import { useState, useCallback, useEffect } from 'react';
 import type { AIConfig, DatabaseSchema, QueryResult } from '../types';
 import { parseApiError, parseNetworkError } from '../utils/errorHandler';
 import { safeJsonForApi } from '../utils/serialization';
-import { STORAGE_KEYS, DEFAULT_PROMPTS, SCHEMA_PLACEHOLDER } from '../constants/aiPrompts';
+import { STORAGE_KEYS, DEFAULT_PROMPTS } from '../constants/aiPrompts';
 
 interface UseAIReturn {
   config: AIConfig;
   setConfig: (config: Partial<AIConfig>) => void;
-  generateSql: (question: string, schema: DatabaseSchema) => Promise<string>;
+  generateSql: (question: string, schema: DatabaseSchema, conversationHistory?: Array<{ role: string; content: string }>) => Promise<string>;
   interpretResults: (question: string, results: QueryResult) => Promise<string>;
   generateSuggestions: (schema: DatabaseSchema) => Promise<string[]>;
   discoverData: (tableName: string, rowCount: number, samples: unknown[], distinctValues?: string) => Promise<string>;
@@ -126,17 +126,27 @@ export const useAI = (): UseAIReturn => {
     [config]
   );
 
-  /** Generate SQL from natural language question */
+  /** Generate SQL from natural language question with conversation history */
   const generateSql = useCallback(
-    async (question: string, schema: DatabaseSchema): Promise<string> => {
-      const schemaDesc = buildSchemaDescription(schema);
-      const promptTemplate = config.customPrompts?.generateSql ?? DEFAULT_PROMPTS.GENERATE_SQL;
-      const systemPrompt = promptTemplate.replace(SCHEMA_PLACEHOLDER, schemaDesc);
+    async (question: string, schema: DatabaseSchema, conversationHistory?: Array<{ role: string; content: string }>): Promise<string> => {
+      const systemPrompt = config.customPrompts?.generateSql ?? DEFAULT_PROMPTS.GENERATE_SQL;
 
-      const result = await callApi([
+      // Build user message with schema only if we have tables
+      const hasSchema = Object.keys(schema).length > 0;
+      let userMessage = question;
+
+      if (hasSchema) {
+        const schemaDesc = buildSchemaDescription(schema);
+        userMessage = `DATABASE SCHEMA:\n${schemaDesc}\n\nQUESTION: ${question}`;
+      }
+
+      const messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: question },
-      ]);
+        ...(conversationHistory || []),
+        { role: 'user', content: userMessage },
+      ];
+
+      const result = await callApi(messages);
       return result.replace(/```sql\n?|\n?```/g, '');
     },
     [callApi, config.customPrompts?.generateSql]

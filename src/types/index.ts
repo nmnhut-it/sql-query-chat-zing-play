@@ -20,6 +20,7 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   sql?: string;
+  sqlExecuted?: boolean;
   results?: QueryResult;
   insight?: string;
   error?: string;

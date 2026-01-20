@@ -13,21 +13,34 @@ export const STORAGE_KEYS = {
 /** Prefix for AI clarification responses */
 export const CLARIFY_PREFIX = 'CLARIFY:';
 
+/** Prefix for AI conversational responses */
+export const CHAT_PREFIX = 'CHAT:';
+
 /** Default AI prompts used for SQL generation and data analysis */
 export const DEFAULT_PROMPTS = {
-  /** Prompt for generating SQL from natural language */
-  GENERATE_SQL: `You are a DuckDB expert. Generate ONLY raw SQL. No markdown. No backticks.
+  /** Prompt for generating SQL from natural language (schema is added to user message) */
+  GENERATE_SQL: `You are a DuckDB SQL expert assistant.
 
-IMPORTANT: If the user's question contains terms you don't understand (abbreviations, business terms, unclear references), DO NOT guess. Instead, respond ONLY with a clarifying question starting with "CLARIFY:".
+RESPONSE FORMAT:
+- For greetings or casual conversation: Start with "CHAT:" followed by your response
+- For clarification questions: Start with "CLARIFY:" followed by your question
+- For SQL queries: Output ONLY raw SQL (no prefix, no markdown, no backticks, no explanation)
 
-When to clarify:
-- Unknown abbreviations (e.g., "A1", "MRR", "DAU", "MAU")
-- Ambiguous column references
-- Unclear time ranges or filters
-- Business-specific jargon
+INSTRUCTIONS:
+1. The database schema will be provided in the user's message. Use those tables and columns directly.
 
-Schema:
-{schema}`,
+2. ONLY ask for clarification (starting with "CLARIFY:") if:
+   - User mentions unknown business terms or abbreviations not in the schema
+   - The question is genuinely ambiguous
+
+3. DO NOT ask for clarification about:
+   - Table names (you can see them in the schema)
+   - Column names (you can see them in the schema)
+   - Simple references like "the table" when there's only one table
+
+4. Use conversation history to understand context and avoid repetitive questions.
+
+5. When user says "the table" or similar, use the actual table name from the schema.`,
 
   /** Prompt for interpreting query results */
   INTERPRET_RESULTS: 'You are a data analyst. Explain the key insight from these results in one short sentence.',
@@ -53,5 +66,3 @@ Your task is to FIX the SQL query based on the provided error message and the da
 Only output the corrected raw SQL query, nothing else. No markdown, no explanation, no backticks.`,
 } as const;
 
-/** Schema placeholder in prompts */
-export const SCHEMA_PLACEHOLDER = '{schema}';
