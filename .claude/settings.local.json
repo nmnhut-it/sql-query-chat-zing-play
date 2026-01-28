@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.assistant-ui.com)",
+      "WebSearch",
+      "WebFetch(domain:docs.copilotkit.ai)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run build:*)",
+      "Skill(commit-commands:commit)"
+    ]
+  }
+}

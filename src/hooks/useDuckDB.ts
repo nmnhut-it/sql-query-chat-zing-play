@@ -186,9 +186,17 @@ export const useDuckDB = (): UseDuckDBReturn => {
 
       onProgress?.(50);
 
-      // Create table from CSV
+      // Create table from CSV with auto-detection
+      // header=true: first row contains column names
+      // auto_detect=true: detect types and delimiters
+      // null_padding=true: pad missing columns with NULL
       await conn.query(
-        `CREATE OR REPLACE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${file.name}')`
+        `CREATE OR REPLACE TABLE "${tableName}" AS
+         SELECT * FROM read_csv('${file.name}',
+           header=true,
+           auto_detect=true,
+           null_padding=true
+         )`
       );
 
       onProgress?.(90);

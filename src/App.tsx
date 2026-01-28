@@ -6,9 +6,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDuckDB, useAI } from './hooks';
 import { SimpleChat } from './components/chat/SimpleChat';
+import { SqlEditor } from './components/sql-editor';
 import { parseError } from './utils/errorHandler';
 import { DEFAULT_PROMPTS } from './constants/aiPrompts';
 import type { HistoryEntry } from './types';
+
+/** Main content tabs */
+type MainTab = 'chat' | 'editor';
 
 export default function DuckQuery() {
   // Core hooks
@@ -30,6 +34,7 @@ export default function DuckQuery() {
   type SettingsTab = 'api' | 'prompt';
 
   // UI state
+  const [mainTab, setMainTab] = useState<MainTab>('chat');
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('api');
   const [editedPrompt, setEditedPrompt] = useState('');
@@ -162,9 +167,32 @@ export default function DuckQuery() {
       <div className="h-screen bg-gray-900 text-gray-100 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
-          <h1 className="text-lg font-semibold flex items-center gap-2">
-            <span>DuckQuery</span>
-          </h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold">DuckQuery</h1>
+            {/* Main tabs */}
+            <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
+              <button
+                onClick={() => setMainTab('chat')}
+                className={`px-3 py-1 text-sm rounded transition ${
+                  mainTab === 'chat'
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setMainTab('editor')}
+                className={`px-3 py-1 text-sm rounded transition ${
+                  mainTab === 'editor'
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                SQL Editor
+              </button>
+            </div>
+          </div>
           <div className="flex gap-2">
             {!tables.length && (
               <button
@@ -289,37 +317,45 @@ export default function DuckQuery() {
             </div>
           </aside>
 
-          {/* Main chat area */}
+          {/* Main content area */}
           <div className="flex-1 flex overflow-hidden">
-            <main className="flex-1 flex flex-col overflow-hidden">
-              {/* Suggestions bar */}
-              {suggestions.length > 0 && (
-                <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-gray-700">
-                  {suggestions.map((s, i) => (
+            {mainTab === 'chat' ? (
+              <main className="flex-1 flex flex-col overflow-hidden">
+                {/* Suggestions bar */}
+                {suggestions.length > 0 && (
+                  <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-gray-700">
+                    {suggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        className="px-3 py-1 bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-full text-xs text-gray-400 hover:text-purple-400 transition"
+                      >
+                        {s}
+                      </button>
+                    ))}
                     <button
-                      key={i}
-                      className="px-3 py-1 bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-full text-xs text-gray-400 hover:text-purple-400 transition"
+                      onClick={handleRefreshSuggestions}
+                      className="p-1 text-gray-600 hover:text-gray-400 transition"
+                      title="Refresh suggestions"
                     >
-                      {s}
+                      Refresh
                     </button>
-                  ))}
-                  <button
-                    onClick={handleRefreshSuggestions}
-                    className="p-1 text-gray-600 hover:text-gray-400 transition"
-                    title="Refresh suggestions"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Simple Chat */}
-              <SimpleChat
+                {/* Simple Chat */}
+                <SimpleChat
                   schema={schema}
                   schemaLoading={schemaLoading}
                   executeQuery={executeQuery}
                 />
-            </main>
+              </main>
+            ) : (
+              <SqlEditor
+                schema={schema}
+                executeQuery={executeQuery}
+                generateSql={generateSql}
+              />
+            )}
           </div>
         </div>
 
