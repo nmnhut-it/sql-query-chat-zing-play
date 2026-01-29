@@ -11,6 +11,7 @@ import type { editor } from 'monaco-editor';
 import type { QueryResult, DatabaseSchema } from '../../types';
 import { CompactResults } from '../chat/CompactResults';
 import { ExpandedResults } from '../chat/ExpandedResults';
+import { TutorialStepId, TUTORIAL_TARGET_ATTR } from '../../constants/tutorialSteps';
 
 /** Ref type for action handlers to avoid stale closures */
 interface ActionHandlers {
@@ -333,7 +334,10 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-800">
+      <div
+        className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-800"
+        {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.SQL_EDITOR_CONTENT }}
+      >
         <button
           onClick={handleRunQuery}
           disabled={loading || converting}

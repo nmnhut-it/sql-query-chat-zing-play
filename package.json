@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "vitest run src/e2e",
-    "test:unit": "vitest run src/hooks src/integration"
+    "test:unit": "vitest run src/hooks src/integration",
+    "test:pw": "playwright test"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev18.0",
+    "@playwright/test": "^1.58.0",
     "@types/node": "^25.0.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
