@@ -1,0 +1,16 @@
+user_id,timestamp,action,page_url,session_id
+U001,2024-01-15 10:30:00,page_view,/home,S123
+U002,2024-01-15 10:31:00,click,/products,S124
+U001,2024-01-15 10:32:00,click,/cart,S123
+U003,2024-01-15 10:33:00,page_view,/home,S125
+U002,2024-01-15 10:34:00,page_view,/checkout,S124
+U001,2024-01-15 10:35:00,purchase,/confirmation,S123
+U004,2024-01-15 10:36:00,page_view,/home,S126
+U003,2024-01-15 10:37:00,click,/products,S125
+U002,2024-01-15 10:38:00,purchase,/confirmation,S124
+U004,2024-01-15 10:39:00,click,/products,S126
+U001,2024-01-16 09:00:00,page_view,/home,S127
+U005,2024-01-16 09:05:00,page_view,/home,S128
+U003,2024-01-16 09:10:00,page_view,/products,S129
+U005,2024-01-16 09:15:00,click,/cart,S128
+U004,2024-01-16 09:20:00,purchase,/confirmation,S130

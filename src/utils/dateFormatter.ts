@@ -1,56 +1,14 @@
 /**
- * Utility for detecting and formatting timestamp values.
- * Automatically converts numeric timestamps to readable dates.
+ * Utility for formatting cell values for display.
+ * Numbers are displayed as-is - use SQL functions like strftime() for date formatting.
  */
-
-/** Bounds for valid timestamps (in seconds) */
-const TIMESTAMP_BOUNDS = {
-  MIN_SECONDS: 946684800,   // Jan 1, 2000
-  MAX_SECONDS: 4102444800,  // Jan 1, 2100
-} as const;
-
-/** Regex to detect date/time column names */
-const DATE_COLUMN_PATTERN = /date|time|created|updated|timestamp|_at$/i;
-
-/**
- * Check if a numeric value is likely a timestamp.
- * Handles both seconds and milliseconds formats.
- */
-export const isLikelyTimestamp = (value: unknown): boolean => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return false;
-  }
-  // Normalize to seconds for comparison
-  const inSeconds = value > TIMESTAMP_BOUNDS.MAX_SECONDS ? value / 1000 : value;
-  return inSeconds >= TIMESTAMP_BOUNDS.MIN_SECONDS && inSeconds <= TIMESTAMP_BOUNDS.MAX_SECONDS;
-};
-
-/**
- * Format a timestamp to human-readable string.
- * Handles both seconds and milliseconds formats.
- */
-export const formatTimestamp = (value: number): string => {
-  // Convert to milliseconds if in seconds
-  const ms = value < TIMESTAMP_BOUNDS.MAX_SECONDS ? value * 1000 : value;
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(ms));
-};
-
-/**
- * Check if a column name suggests it contains date/time values.
- */
-export const isDateColumn = (columnName: string): boolean => {
-  return DATE_COLUMN_PATTERN.test(columnName);
-};
 
 /**
  * Format a cell value for display.
- * Automatically formats timestamps based on column name or value detection.
  * Handles BigInt and object types from DuckDB.
+ * Numbers are NOT auto-converted to dates - format timestamps in SQL instead.
  */
-export const formatCellValue = (value: unknown, columnName?: string): string => {
+export const formatCellValue = (value: unknown, _columnName?: string): string => {
   if (value === null || value === undefined) {
     return '';
   }
@@ -66,9 +24,12 @@ export const formatCellValue = (value: unknown, columnName?: string): string => 
     if (Array.isArray(value)) {
       return JSON.stringify(value);
     }
-    // Handle Date objects
+    // Handle Date objects (explicit Date objects are fine to format)
     if (value instanceof Date) {
-      return value.toISOString();
+      return new Intl.DateTimeFormat('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(value);
     }
     // Try to extract primitive value from wrapper objects
     const obj = value as Record<string, unknown>;
@@ -80,15 +41,6 @@ export const formatCellValue = (value: unknown, columnName?: string): string => 
       return JSON.stringify(value);
     } catch {
       return '[Complex Object]';
-    }
-  }
-
-  const shouldCheckTimestamp = columnName ? isDateColumn(columnName) : false;
-
-  if (typeof value === 'number') {
-    // Format if column name suggests timestamp or value looks like timestamp
-    if (shouldCheckTimestamp || isLikelyTimestamp(value)) {
-      return formatTimestamp(value);
     }
   }
 

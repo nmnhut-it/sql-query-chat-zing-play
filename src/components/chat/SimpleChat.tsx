@@ -16,9 +16,11 @@ interface SimpleChatProps {
   schema: DatabaseSchema;
   schemaLoading: boolean;
   executeQuery: (sql: string) => Promise<QueryResult>;
+  /** Pre-built messages injected by the tutorial demo */
+  demoMessages?: ChatMessage[];
 }
 
-export const SimpleChat = ({ schema, schemaLoading, executeQuery }: SimpleChatProps) => {
+export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }: SimpleChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,6 +32,13 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery }: SimpleChatPr
   // Use ref to always get latest schema (avoids stale closure issues)
   const schemaRef = useRef(schema);
   schemaRef.current = schema;
+
+  // Inject demo messages from tutorial
+  useEffect(() => {
+    if (demoMessages && demoMessages.length > 0) {
+      setMessages(demoMessages);
+    }
+  }, [demoMessages]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {

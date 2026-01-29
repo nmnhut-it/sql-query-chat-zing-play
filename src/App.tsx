@@ -4,11 +4,20 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useDuckDB, useAI } from './hooks';
+import { useDuckDB, useAI, useTutorial } from './hooks';
 import { SimpleChat } from './components/chat/SimpleChat';
+import { SqlEditor } from './components/sql-editor';
+import { Tutorial } from './components/tutorial';
 import { parseError } from './utils/errorHandler';
 import { DEFAULT_PROMPTS } from './constants/aiPrompts';
-import type { HistoryEntry } from './types';
+import { TutorialStepId, TUTORIAL_TARGET_ATTR } from './constants/tutorialSteps';
+import type { RequiredTab } from './constants/tutorialSteps';
+import { DEMO_SQL, buildDemoMessages } from './constants/tutorialDemo';
+import { HelpCircle } from 'lucide-react';
+import type { ChatMessage, HistoryEntry } from './types';
+
+/** Main content tabs */
+type MainTab = 'chat' | 'editor';
 
 export default function DuckQuery() {
   // Core hooks
@@ -25,11 +34,13 @@ export default function DuckQuery() {
   } = useDuckDB();
 
   const { config, setConfig, generateSql, interpretResults, generateSuggestions, explorePreliminary, fixSql, discoverData } = useAI();
+  const tutorial = useTutorial();
 
   // Settings tabs
   type SettingsTab = 'api' | 'prompt';
 
   // UI state
+  const [mainTab, setMainTab] = useState<MainTab>('chat');
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('api');
   const [editedPrompt, setEditedPrompt] = useState('');
@@ -40,6 +51,7 @@ export default function DuckQuery() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load suggestions when schema is ready
@@ -146,6 +158,27 @@ export default function DuckQuery() {
     }
   }, [config.apiKey, tables.length, schema, generateSuggestions]);
 
+  /** Triggers demo actions when entering specific tutorial steps */
+  const handleStepEnter = useCallback(async (stepId: TutorialStepId) => {
+    if (stepId === TutorialStepId.IMPORT_DATA) {
+      await handleLoadSample();
+    } else if (stepId === TutorialStepId.CHAT_AREA) {
+      try {
+        const results = await executeQuery(DEMO_SQL);
+        setDemoMessages(buildDemoMessages(results));
+      } catch (err) {
+        console.error('Demo query failed:', err);
+      }
+    }
+  }, [handleLoadSample, executeQuery]);
+
+  // Clear demo messages when tutorial ends
+  useEffect(() => {
+    if (!tutorial.isActive) {
+      setDemoMessages([]);
+    }
+  }, [tutorial.isActive]);
+
   // Loading state
   if (dbLoading) {
     return (
@@ -162,9 +195,33 @@ export default function DuckQuery() {
       <div className="h-screen bg-gray-900 text-gray-100 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
-          <h1 className="text-lg font-semibold flex items-center gap-2">
-            <span>DuckQuery</span>
-          </h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold" {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.WELCOME }}>DuckQuery</h1>
+            {/* Main tabs */}
+            <div className="flex gap-1 bg-gray-900 rounded-lg p-1">
+              <button
+                onClick={() => setMainTab('chat')}
+                className={`px-3 py-1 text-sm rounded transition ${
+                  mainTab === 'chat'
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setMainTab('editor')}
+                className={`px-3 py-1 text-sm rounded transition ${
+                  mainTab === 'editor'
+                    ? 'bg-gray-700 text-white'
+                    : 'text-gray-400 hover:text-gray-300'
+                }`}
+                {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.SQL_EDITOR_TAB }}
+              >
+                SQL Editor
+              </button>
+            </div>
+          </div>
           <div className="flex gap-2">
             {!tables.length && (
               <button
@@ -176,12 +233,24 @@ export default function DuckQuery() {
               </button>
             )}
             <button
+              onClick={tutorial.startTutorial}
+              className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded transition flex items-center gap-1.5"
+              title="How to use DuckQuery"
+            >
+              <HelpCircle className="w-4 h-4" />
+              How to use
+            </button>
+            <button
               onClick={() => setShowSettings(true)}
               className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded transition"
+              {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.SETTINGS }}
             >
               Settings
             </button>
-            <label className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 rounded cursor-pointer transition">
+            <label
+              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 rounded cursor-pointer transition"
+              {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.IMPORT_DATA }}
+            >
               Import CSV
               <input
                 type="file"
@@ -215,7 +284,10 @@ export default function DuckQuery() {
           {/* Left sidebar - Schema */}
           <aside className="w-56 border-r border-gray-700 flex flex-col bg-gray-850 overflow-hidden">
             {/* Schema */}
-            <div className="flex-1 overflow-auto p-3">
+            <div
+              className="flex-1 overflow-auto p-3"
+              {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.SCHEMA }}
+            >
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 Schema
               </h2>
@@ -266,7 +338,10 @@ export default function DuckQuery() {
             )}
 
             {/* History */}
-            <div className="border-t border-gray-700 p-3 max-h-64 overflow-auto">
+            <div
+              className="border-t border-gray-700 p-3 max-h-64 overflow-auto"
+              {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.HISTORY }}
+            >
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 History
               </h2>
@@ -289,39 +364,58 @@ export default function DuckQuery() {
             </div>
           </aside>
 
-          {/* Main chat area */}
+          {/* Main content area */}
           <div className="flex-1 flex overflow-hidden">
-            <main className="flex-1 flex flex-col overflow-hidden">
-              {/* Suggestions bar */}
-              {suggestions.length > 0 && (
-                <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-gray-700">
-                  {suggestions.map((s, i) => (
+            {mainTab === 'chat' ? (
+              <main
+                className="flex-1 flex flex-col overflow-hidden"
+                {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.CHAT_AREA }}
+              >
+                {/* Suggestions bar */}
+                {suggestions.length > 0 && (
+                  <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-gray-700">
+                    {suggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        className="px-3 py-1 bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-full text-xs text-gray-400 hover:text-purple-400 transition"
+                      >
+                        {s}
+                      </button>
+                    ))}
                     <button
-                      key={i}
-                      className="px-3 py-1 bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-full text-xs text-gray-400 hover:text-purple-400 transition"
+                      onClick={handleRefreshSuggestions}
+                      className="p-1 text-gray-600 hover:text-gray-400 transition"
+                      title="Refresh suggestions"
                     >
-                      {s}
+                      Refresh
                     </button>
-                  ))}
-                  <button
-                    onClick={handleRefreshSuggestions}
-                    className="p-1 text-gray-600 hover:text-gray-400 transition"
-                    title="Refresh suggestions"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Simple Chat */}
-              <SimpleChat
+                {/* Simple Chat */}
+                <SimpleChat
                   schema={schema}
                   schemaLoading={schemaLoading}
                   executeQuery={executeQuery}
+                  demoMessages={demoMessages}
                 />
-            </main>
+              </main>
+            ) : (
+              <SqlEditor
+                schema={schema}
+                executeQuery={executeQuery}
+                generateSql={generateSql}
+              />
+            )}
           </div>
         </div>
+
+        {/* Tutorial overlay */}
+        <Tutorial
+          tutorial={tutorial}
+          onTabChange={(tab: RequiredTab) => setMainTab(tab === 'editor' ? 'editor' : 'chat')}
+          onStepEnter={handleStepEnter}
+        />
 
         {/* Settings modal */}
         {showSettings && (

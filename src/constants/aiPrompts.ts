@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   AI_CONFIG: 'duckquery_ai_config',
   CUSTOM_PROMPTS: 'duckquery_custom_prompts',
   THREAD_LIST: 'duckquery_threads',
+  TUTORIAL_COMPLETED: 'duckquery_tutorial_completed',
 } as const;
 
 /** Prefix for AI clarification responses */
