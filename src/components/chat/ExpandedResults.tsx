@@ -6,6 +6,7 @@
 import { useEffect, useCallback } from 'react';
 import type { QueryResult } from '../../types';
 import { formatCellValue } from '../../utils/dateFormatter';
+import { exportResultsToCsv } from '../../utils/csvExport';
 
 interface ExpandedResultsProps {
   results: QueryResult;
@@ -40,35 +41,12 @@ export const ExpandedResults = ({ results, onClose, onExport }: ExpandedResultsP
   );
 
   const handleExportCsv = useCallback(() => {
-    if (!onExport) {
-      // Default export implementation
-      const csv = [
-        columns.join(','),
-        ...rows.map((r) =>
-          columns
-            .map((c) => {
-              const val = r[c];
-              if (val === null || val === undefined) return '';
-              const str = String(val);
-              return str.includes(',') || str.includes('"')
-                ? `"${str.replace(/"/g, '""')}"`
-                : str;
-            })
-            .join(',')
-        ),
-      ].join('\n');
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'results.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } else {
+    if (onExport) {
       onExport();
+    } else {
+      exportResultsToCsv(results);
     }
-  }, [columns, rows, onExport]);
+  }, [results, onExport]);
 
   return (
     <div

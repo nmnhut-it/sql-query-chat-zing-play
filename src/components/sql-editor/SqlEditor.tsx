@@ -12,6 +12,7 @@ import type { QueryResult, DatabaseSchema } from '../../types';
 import { CompactResults } from '../chat/CompactResults';
 import { ExpandedResults } from '../chat/ExpandedResults';
 import { TutorialStepId, TUTORIAL_TARGET_ATTR } from '../../constants/tutorialSteps';
+import { exportResultsToCsv } from '../../utils/csvExport';
 
 /** Ref type for action handlers to avoid stale closures */
 interface ActionHandlers {
@@ -308,27 +309,7 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
 
   const handleExport = useCallback(() => {
     if (!results) return;
-
-    const headers = results.columns.join(',');
-    const rows = results.rows.map(row =>
-      results.columns.map(col => {
-        const val = row[col];
-        if (val === null || val === undefined) return '';
-        const str = String(val);
-        return str.includes(',') || str.includes('"')
-          ? `"${str.replace(/"/g, '""')}"`
-          : str;
-      }).join(',')
-    );
-
-    const csv = [headers, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'query-results.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    exportResultsToCsv(results);
   }, [results]);
 
   return (
