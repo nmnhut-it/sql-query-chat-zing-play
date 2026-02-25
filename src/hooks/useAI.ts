@@ -9,10 +9,18 @@ import { parseApiError, parseNetworkError } from '../utils/errorHandler';
 import { safeJsonForApi } from '../utils/serialization';
 import { STORAGE_KEYS, DEFAULT_PROMPTS } from '../constants/aiPrompts';
 
+/** Result from SQL generation including thinking/planning and SQL summary */
+export interface GenerateSqlResult {
+  thinking: string | null;
+  summary: string | null;
+  response: string;
+}
+
 interface UseAIReturn {
   config: AIConfig;
   setConfig: (config: Partial<AIConfig>) => void;
   generateSql: (question: string, schema: DatabaseSchema, conversationHistory?: Array<{ role: string; content: string }>) => Promise<string>;
+  generateSqlWithThinking: (question: string, schema: DatabaseSchema, conversationHistory?: Array<{ role: string; content: string }>) => Promise<GenerateSqlResult>;
   interpretResults: (question: string, results: QueryResult) => Promise<string>;
   generateSuggestions: (schema: DatabaseSchema) => Promise<string[]>;
   discoverData: (tableName: string, rowCount: number, samples: unknown[], distinctValues?: string) => Promise<string>;
@@ -73,6 +81,27 @@ const buildSchemaDescription = (schema: DatabaseSchema, includeDetails = true): 
       return `Table "${table}": ${cols}\nSamples: ${sampleRows}\nStats: ${statsInfo}`;
     })
     .join('\n\n');
+};
+
+/** Parse <think>...</think> and <summary>...</summary> tags from AI response */
+const parseStructuredResponse = (raw: string): { thinking: string | null; summary: string | null; rest: string } => {
+  let text = raw;
+  let thinking: string | null = null;
+  let summary: string | null = null;
+
+  const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
+  if (thinkMatch) {
+    thinking = thinkMatch[1].trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+  }
+
+  const summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/);
+  if (summaryMatch) {
+    summary = summaryMatch[1].trim();
+    text = text.replace(/<summary>[\s\S]*?<\/summary>/, '').trim();
+  }
+
+  return { thinking, summary, rest: text };
 };
 
 export const useAI = (): UseAIReturn => {
@@ -148,6 +177,34 @@ export const useAI = (): UseAIReturn => {
 
       const result = await callApi(messages);
       return result.replace(/```sql\n?|\n?```/g, '');
+    },
+    [callApi, config.customPrompts?.generateSql]
+  );
+
+  /** Generate SQL from natural language with thinking/planning */
+  const generateSqlWithThinking = useCallback(
+    async (question: string, schema: DatabaseSchema, conversationHistory?: Array<{ role: string; content: string }>): Promise<GenerateSqlResult> => {
+      const systemPrompt = config.customPrompts?.generateSql ?? DEFAULT_PROMPTS.GENERATE_SQL;
+
+      const hasSchema = Object.keys(schema).length > 0;
+      let userMessage = question;
+
+      if (hasSchema) {
+        const schemaDesc = buildSchemaDescription(schema);
+        userMessage = `DATABASE SCHEMA:\n${schemaDesc}\n\nQUESTION: ${question}`;
+      }
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...(conversationHistory || []),
+        { role: 'user', content: userMessage },
+      ];
+
+      const rawResult = await callApi(messages);
+      const { thinking, summary, rest } = parseStructuredResponse(rawResult);
+      const response = rest.replace(/```sql\n?|\n?```/g, '');
+
+      return { thinking, summary, response };
     },
     [callApi, config.customPrompts?.generateSql]
   );
@@ -243,6 +300,7 @@ export const useAI = (): UseAIReturn => {
     config,
     setConfig,
     generateSql,
+    generateSqlWithThinking,
     interpretResults,
     generateSuggestions,
     discoverData,

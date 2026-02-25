@@ -9,6 +9,7 @@ import { useAI } from '../../hooks/useAI';
 import { SqlBlock } from './SqlBlock';
 import { CompactResults } from './CompactResults';
 import { ExpandedResults } from './ExpandedResults';
+import { ThinkingBlock, ThinkingIndicator } from './ThinkingBlock';
 import { ChatMessage, QueryResult, DatabaseSchema } from '../../types';
 import { Send, AlertCircle } from 'lucide-react';
 
@@ -27,7 +28,7 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
   const [expandedResults, setExpandedResults] = useState<QueryResult | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { generateSql, interpretResults } = useAI();
+  const { generateSqlWithThinking, interpretResults } = useAI();
 
   // Use ref to always get latest schema (avoids stale closure issues)
   const schemaRef = useRef(schema);
@@ -125,10 +126,9 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
         };
       });
 
-      // Generate SQL from user question with conversation context
-      // Use schemaRef.current to always get latest schema (avoids stale closure)
+      // Generate SQL from user question with thinking/planning
       const currentSchema = schemaRef.current;
-      const sqlQuery = await generateSql(input, currentSchema, history);
+      const { thinking, summary, response: sqlQuery } = await generateSqlWithThinking(input, currentSchema, history);
 
       // Check if it's conversational or clarification (not SQL)
       if (!sqlQuery || sqlQuery.startsWith('CLARIFY:') || sqlQuery.startsWith('CHAT:')) {
@@ -145,6 +145,7 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content,
+          thinking: thinking || undefined,
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, assistantMessage]);
@@ -152,12 +153,14 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
         return;
       }
 
-      // Show SQL but DON'T execute it yet - user will click Run button
+      // Show thinking + summary + SQL but DON'T execute yet - user will click Run button
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Generated SQL query. Click "Run" to execute it.',
+        content: summary || 'Generated SQL query. Click "Run" to execute it.',
         timestamp: Date.now(),
+        thinking: thinking || undefined,
+        summary: summary || undefined,
         sql: sqlQuery,
         sqlExecuted: false
       };
@@ -192,6 +195,11 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
               </div>
             ) : (
               <div className="max-w-[90%] space-y-3">
+                {/* Thinking/Planning block */}
+                {msg.thinking && (
+                  <ThinkingBlock thinking={msg.thinking} />
+                )}
+
                 <div className="text-gray-300 text-sm">{msg.content}</div>
 
                 {msg.sql && (
@@ -217,9 +225,11 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
                   />
                 )}
 
+                {/* Result summary */}
                 {msg.insight && (
-                  <div className="px-3 py-2 bg-blue-900/20 border border-blue-500/30 rounded">
-                    <p className="text-sm text-blue-100 italic">{msg.insight}</p>
+                  <div className="px-3 py-2 bg-blue-900/20 border border-blue-500/30 rounded space-y-1">
+                    <div className="text-xs font-medium text-blue-400 uppercase tracking-wide">Result Summary</div>
+                    <div className="text-sm text-blue-100 whitespace-pre-wrap leading-relaxed">{msg.insight}</div>
                   </div>
                 )}
               </div>
@@ -228,8 +238,8 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
         ))}
 
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="text-gray-400 text-sm">Generating SQL...</div>
+          <div className="flex justify-start max-w-[90%]">
+            <ThinkingIndicator />
           </div>
         )}
 

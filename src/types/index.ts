@@ -23,6 +23,8 @@ export interface ChatMessage {
   sqlExecuted?: boolean;
   results?: QueryResult;
   insight?: string;
+  thinking?: string;
+  summary?: string;
   error?: string;
   isGenerating?: boolean;
 }

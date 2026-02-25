@@ -7,3 +7,4 @@ export { SimpleChat } from './SimpleChat';
 export { CompactResults } from './CompactResults';
 export { ExpandedResults } from './ExpandedResults';
 export { SqlBlock } from './SqlBlock';
+export { ThinkingBlock, ThinkingIndicator } from './ThinkingBlock';

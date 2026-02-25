@@ -23,8 +23,25 @@ export const DEFAULT_PROMPTS = {
   GENERATE_SQL: `You are a DuckDB SQL expert assistant.
 
 RESPONSE FORMAT:
-- For greetings or casual conversation: Start with "CHAT:" followed by your response
-- For clarification questions: Start with "CLARIFY:" followed by your question
+Always include a <think> section and a <summary> section before your response.
+
+<think>
+Your step-by-step reasoning:
+1. What the user is asking for
+2. Which tables and columns are relevant
+3. Any joins, aggregations, or filters needed
+4. Your approach to writing the query
+</think>
+
+<summary>
+A clear, plain-English explanation of what the SQL query will do and how it works.
+For example: "This query counts the number of orders per customer by joining the orders and customers tables, grouping by customer name, and sorting from highest to lowest."
+Keep it to 1-2 sentences. Write it so a non-technical person can understand.
+</summary>
+
+After the </summary> tag, provide ONE of:
+- For greetings or casual conversation: Start with "CHAT:" followed by your response (skip <summary> for these)
+- For clarification questions: Start with "CLARIFY:" followed by your question (skip <summary> for these)
 - For SQL queries: Output ONLY raw SQL (no prefix, no markdown, no backticks, no explanation)
 
 INSTRUCTIONS:
@@ -44,7 +61,10 @@ INSTRUCTIONS:
 5. When user says "the table" or similar, use the actual table name from the schema.`,
 
   /** Prompt for interpreting query results */
-  INTERPRET_RESULTS: 'You are a data analyst. Explain the key insight from these results in one short sentence.',
+  INTERPRET_RESULTS: `You are a data analyst. Given the user's question and the query results, write a clear summary of what the results show.
+
+Be specific: mention actual values, counts, and patterns from the data.
+Keep it to 2-3 sentences. Write it so anyone can understand the answer without looking at the raw data.`,
 
   /** Prompt for data discovery on new tables */
   DISCOVER_DATA: `Profile this dataset:

@@ -34,6 +34,132 @@ const buildUserMessage = (question: string, schema: DatabaseSchema): string => {
   return `DATABASE SCHEMA:\n${schemaDesc}\n\nQUESTION: ${question}`;
 };
 
+/** Parse <think> and <summary> tags from AI response (mirrors useAI.ts logic) */
+const parseStructuredResponse = (raw: string): { thinking: string | null; summary: string | null; rest: string } => {
+  let text = raw;
+  let thinking: string | null = null;
+  let summary: string | null = null;
+
+  const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
+  if (thinkMatch) {
+    thinking = thinkMatch[1].trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+  }
+
+  const summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/);
+  if (summaryMatch) {
+    summary = summaryMatch[1].trim();
+    text = text.replace(/<summary>[\s\S]*?<\/summary>/, '').trim();
+  }
+
+  return { thinking, summary, rest: text };
+};
+
+describe('useAI - parseStructuredResponse', () => {
+  it('should parse thinking and summary from a full SQL response', () => {
+    const raw = `<think>
+1. User wants total revenue
+2. Using sales_data table, revenue column
+3. Simple SUM aggregation
+4. No filters needed
+</think>
+
+<summary>
+This query calculates the total revenue across all sales by summing the revenue column.
+</summary>
+
+SELECT SUM(revenue) AS total_revenue FROM sales_data`;
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toContain('User wants total revenue');
+    expect(result.thinking).toContain('Simple SUM aggregation');
+    expect(result.summary).toContain('total revenue across all sales');
+    expect(result.rest).toBe('SELECT SUM(revenue) AS total_revenue FROM sales_data');
+  });
+
+  it('should handle response with thinking only (no summary)', () => {
+    const raw = `<think>
+User is saying hello, this is a greeting.
+</think>
+
+CHAT: Hello! How can I help you with your data?`;
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toContain('User is saying hello');
+    expect(result.summary).toBeNull();
+    expect(result.rest).toBe('CHAT: Hello! How can I help you with your data?');
+  });
+
+  it('should handle response with no tags at all', () => {
+    const raw = 'SELECT * FROM users LIMIT 10';
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toBeNull();
+    expect(result.summary).toBeNull();
+    expect(result.rest).toBe('SELECT * FROM users LIMIT 10');
+  });
+
+  it('should handle multiline thinking with numbered steps', () => {
+    const raw = `<think>
+1. The user asks for orders per customer
+2. Need to join orders and customers tables
+3. GROUP BY customer_name, COUNT orders
+4. Sort descending
+</think>
+
+<summary>
+This query counts orders per customer by joining the orders and customers tables, grouping by customer name, and sorting from highest to lowest.
+</summary>
+
+SELECT c.name, COUNT(o.id) AS order_count
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+GROUP BY c.name
+ORDER BY order_count DESC`;
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toContain('join orders and customers tables');
+    expect(result.summary).toContain('counts orders per customer');
+    expect(result.rest).toContain('SELECT c.name');
+    expect(result.rest).toContain('ORDER BY order_count DESC');
+    // Should not contain any tags in the rest
+    expect(result.rest).not.toContain('<think>');
+    expect(result.rest).not.toContain('<summary>');
+  });
+
+  it('should handle CLARIFY response with thinking', () => {
+    const raw = `<think>
+The user mentions "churn rate" but I don't see a churn-related column. Need clarification.
+</think>
+
+CLARIFY: What do you mean by "churn rate"? Do you want to measure users who stopped purchasing after a certain date?`;
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toContain('churn rate');
+    expect(result.summary).toBeNull();
+    expect(result.rest.startsWith('CLARIFY:')).toBe(true);
+  });
+
+  it('should handle summary with special characters', () => {
+    const raw = `<think>Checking revenue > 1000</think>
+
+<summary>This query finds all sales where revenue is greater than $1,000.</summary>
+
+SELECT * FROM sales_data WHERE revenue > 1000`;
+
+    const result = parseStructuredResponse(raw);
+
+    expect(result.thinking).toBe('Checking revenue > 1000');
+    expect(result.summary).toBe('This query finds all sales where revenue is greater than $1,000.');
+    expect(result.rest).toBe('SELECT * FROM sales_data WHERE revenue > 1000');
+  });
+});
+
 describe('useAI - Schema Handling', () => {
   describe('buildSchemaDescription', () => {
     it('should return empty string for empty schema', () => {
