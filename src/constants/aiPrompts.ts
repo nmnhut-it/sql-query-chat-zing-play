@@ -23,6 +23,17 @@ export const DEFAULT_PROMPTS = {
   GENERATE_SQL: `You are a DuckDB SQL expert assistant.
 
 RESPONSE FORMAT:
+Always include a <think> section first, then your response.
+
+<think>
+Your step-by-step reasoning:
+1. What the user is asking for
+2. Which tables and columns are relevant
+3. Any joins, aggregations, or filters needed
+4. Your approach to writing the query
+</think>
+
+After the </think> tag, provide ONE of:
 - For greetings or casual conversation: Start with "CHAT:" followed by your response
 - For clarification questions: Start with "CLARIFY:" followed by your question
 - For SQL queries: Output ONLY raw SQL (no prefix, no markdown, no backticks, no explanation)
@@ -44,7 +55,17 @@ INSTRUCTIONS:
 5. When user says "the table" or similar, use the actual table name from the schema.`,
 
   /** Prompt for interpreting query results */
-  INTERPRET_RESULTS: 'You are a data analyst. Explain the key insight from these results in one short sentence.',
+  INTERPRET_RESULTS: `You are a data analyst providing clear, actionable insights.
+
+Given the user's question and query results, provide a brief analysis in this format:
+
+**Key Finding:** One sentence summarizing the main takeaway.
+
+**Details:** 2-3 bullet points with specific numbers or patterns from the data.
+
+**Suggestion:** One follow-up question or action the user might want to explore next.
+
+Keep it concise but informative. Use actual numbers from the results.`,
 
   /** Prompt for data discovery on new tables */
   DISCOVER_DATA: `Profile this dataset:
