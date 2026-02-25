@@ -128,7 +128,7 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
 
       // Generate SQL from user question with thinking/planning
       const currentSchema = schemaRef.current;
-      const { thinking, response: sqlQuery } = await generateSqlWithThinking(input, currentSchema, history);
+      const { thinking, summary, response: sqlQuery } = await generateSqlWithThinking(input, currentSchema, history);
 
       // Check if it's conversational or clarification (not SQL)
       if (!sqlQuery || sqlQuery.startsWith('CLARIFY:') || sqlQuery.startsWith('CHAT:')) {
@@ -153,13 +153,14 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
         return;
       }
 
-      // Show thinking + SQL but DON'T execute yet - user will click Run button
+      // Show thinking + summary + SQL but DON'T execute yet - user will click Run button
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Generated SQL query. Click "Run" to execute it.',
+        content: summary || 'Generated SQL query. Click "Run" to execute it.',
         timestamp: Date.now(),
         thinking: thinking || undefined,
+        summary: summary || undefined,
         sql: sqlQuery,
         sqlExecuted: false
       };
@@ -224,11 +225,11 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
                   />
                 )}
 
-                {/* Enhanced summary/explanation */}
+                {/* Result summary */}
                 {msg.insight && (
                   <div className="px-3 py-2 bg-blue-900/20 border border-blue-500/30 rounded space-y-1">
-                    <div className="text-xs font-medium text-blue-400 uppercase tracking-wide">Analysis</div>
-                    <div className="text-sm text-blue-100 whitespace-pre-wrap leading-relaxed prose-sm">{msg.insight}</div>
+                    <div className="text-xs font-medium text-blue-400 uppercase tracking-wide">Result Summary</div>
+                    <div className="text-sm text-blue-100 whitespace-pre-wrap leading-relaxed">{msg.insight}</div>
                   </div>
                 )}
               </div>

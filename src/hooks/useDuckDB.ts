@@ -22,9 +22,6 @@ interface UseDuckDBReturn {
   importCsv: (file: File, onProgress?: (pct: number) => void) => Promise<string>;
   loadSampleData: () => Promise<void>;
   getDistinctValues: (table: string, column: string, limit?: number) => Promise<DistinctValueEntry[]>;
-  exportParquet: (tableName: string) => Promise<void>;
-  exportAllParquet: () => Promise<void>;
-  exportDatabase: () => Promise<void>;
 }
 
 export const useDuckDB = (): UseDuckDBReturn => {
@@ -238,72 +235,6 @@ export const useDuckDB = (): UseDuckDBReturn => {
     [conn]
   );
 
-  /** Helper to trigger a browser file download */
-  const triggerDownload = useCallback((blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, []);
-
-  /** Export a single table as Parquet file (downloadable, openable by DuckDB CLI/Python/etc.) */
-  const exportParquet = useCallback(
-    async (tableName: string) => {
-      if (!db || !conn) throw new Error('Database not initialized');
-
-      const filename = `${tableName}.parquet`;
-      await conn.query(`COPY "${tableName}" TO '${filename}' (FORMAT PARQUET)`);
-      const buf = await db.copyFileToBuffer(filename);
-      triggerDownload(new Blob([buf.buffer as ArrayBuffer]), filename);
-    },
-    [db, conn, triggerDownload]
-  );
-
-  /** Export all tables as Parquet files (one download per table) */
-  const exportAllParquet = useCallback(async () => {
-    if (!db || !conn) throw new Error('Database not initialized');
-
-    const tableResult = await conn.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`
-    );
-    const tableNames = tableResult
-      .toArray()
-      .map((r: Record<string, unknown>) => String(r.table_name));
-
-    for (const table of tableNames) {
-      await exportParquet(table);
-    }
-  }, [db, conn, exportParquet]);
-
-  /** Export the entire in-memory database as a .duckdb file */
-  const exportDatabase = useCallback(async () => {
-    if (!db || !conn) throw new Error('Database not initialized');
-
-    const exportFile = 'export.duckdb';
-    // EXPORT DATABASE writes all tables + schema to a directory; instead use ATTACH + COPY
-    // DuckDB WASM approach: export each table as parquet, then bundle
-    // Simplest: use ATTACH to create a file-based DB copy in the WASM filesystem
-    await conn.query(`ATTACH '${exportFile}' AS export_db`);
-    const tableResult = await conn.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'`
-    );
-    const tableNames = tableResult
-      .toArray()
-      .map((r: Record<string, unknown>) => String(r.table_name));
-
-    for (const table of tableNames) {
-      await conn.query(`CREATE TABLE export_db."${table}" AS SELECT * FROM main."${table}"`);
-    }
-    await conn.query(`DETACH export_db`);
-
-    const buf = await db.copyFileToBuffer(exportFile);
-    triggerDownload(new Blob([buf.buffer as ArrayBuffer]), 'duckquery.duckdb');
-  }, [db, conn, triggerDownload]);
-
   /** Load sample data for testing */
   const loadSampleData = useCallback(async () => {
     if (!conn) return;
@@ -341,9 +272,6 @@ export const useDuckDB = (): UseDuckDBReturn => {
     importCsv,
     loadSampleData,
     getDistinctValues,
-    exportParquet,
-    exportAllParquet,
-    exportDatabase,
   };
 };
 

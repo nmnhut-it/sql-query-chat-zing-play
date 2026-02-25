@@ -9,9 +9,10 @@ import { parseApiError, parseNetworkError } from '../utils/errorHandler';
 import { safeJsonForApi } from '../utils/serialization';
 import { STORAGE_KEYS, DEFAULT_PROMPTS } from '../constants/aiPrompts';
 
-/** Result from SQL generation including thinking/planning */
+/** Result from SQL generation including thinking/planning and SQL summary */
 export interface GenerateSqlResult {
   thinking: string | null;
+  summary: string | null;
   response: string;
 }
 
@@ -82,15 +83,25 @@ const buildSchemaDescription = (schema: DatabaseSchema, includeDetails = true): 
     .join('\n\n');
 };
 
-/** Parse <think>...</think> tags from AI response */
-const parseThinking = (raw: string): { thinking: string | null; rest: string } => {
-  const thinkMatch = raw.match(/<think>([\s\S]*?)<\/think>/);
+/** Parse <think>...</think> and <summary>...</summary> tags from AI response */
+const parseStructuredResponse = (raw: string): { thinking: string | null; summary: string | null; rest: string } => {
+  let text = raw;
+  let thinking: string | null = null;
+  let summary: string | null = null;
+
+  const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
   if (thinkMatch) {
-    const thinking = thinkMatch[1].trim();
-    const rest = raw.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-    return { thinking, rest };
+    thinking = thinkMatch[1].trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
   }
-  return { thinking: null, rest: raw };
+
+  const summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/);
+  if (summaryMatch) {
+    summary = summaryMatch[1].trim();
+    text = text.replace(/<summary>[\s\S]*?<\/summary>/, '').trim();
+  }
+
+  return { thinking, summary, rest: text };
 };
 
 export const useAI = (): UseAIReturn => {
@@ -190,10 +201,10 @@ export const useAI = (): UseAIReturn => {
       ];
 
       const rawResult = await callApi(messages);
-      const { thinking, rest } = parseThinking(rawResult);
+      const { thinking, summary, rest } = parseStructuredResponse(rawResult);
       const response = rest.replace(/```sql\n?|\n?```/g, '');
 
-      return { thinking, response };
+      return { thinking, summary, response };
     },
     [callApi, config.customPrompts?.generateSql]
   );

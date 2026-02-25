@@ -24,6 +24,7 @@ export interface ChatMessage {
   results?: QueryResult;
   insight?: string;
   thinking?: string;
+  summary?: string;
   error?: string;
   isGenerating?: boolean;
 }
