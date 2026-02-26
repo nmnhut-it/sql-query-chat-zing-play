@@ -1,7 +1,7 @@
 /**
  * SQL Editor component with Monaco editor.
  * Allows writing multiple queries, selecting text, and running selected/current query.
- * Supports converting natural language TODOs to SQL using AI.
+ * Supports converting natural language TODOs to SQL using AI with inline review.
  * Results displayed in a panel below the editor.
  */
 
@@ -9,10 +9,13 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import type { QueryResult, DatabaseSchema } from '../../types';
+import type { GenerateSqlResult } from '../../hooks/useAI';
 import { CompactResults } from '../chat/CompactResults';
 import { ExpandedResults } from '../chat/ExpandedResults';
+import { InlineSqlChat } from './InlineSqlChat';
 import { TutorialStepId, TUTORIAL_TARGET_ATTR } from '../../constants/tutorialSteps';
 import { exportResultsToCsv } from '../../utils/csvExport';
+import { Workflow } from 'lucide-react';
 
 /** Ref type for action handlers to avoid stale closures */
 interface ActionHandlers {
@@ -36,10 +39,53 @@ const DEFAULT_CONTENT = `-- Write your SQL queries here
 
 `;
 
+/** State for the inline SQL generation chat */
+interface InlineChatState {
+  /** Whether the inline chat is open */
+  isOpen: boolean;
+  /** The original question from the selected TODO */
+  question: string;
+  /** Generated SQL result (null while loading) */
+  generatedSql: string | null;
+  /** AI thinking/reasoning */
+  thinking: string | null;
+  /** AI summary of what the SQL does */
+  summary: string | null;
+  /** Whether AI is currently generating */
+  isGenerating: boolean;
+  /** Error message if generation failed */
+  error: string | null;
+  /** Conversation history for refinements */
+  conversationHistory: Array<{ role: string; content: string }>;
+  /** Editor line where the selection ends (for positioning) */
+  overlayTop: number;
+  /** The selection range to insert after */
+  selectionEndLine: number;
+}
+
+const INITIAL_CHAT_STATE: InlineChatState = {
+  isOpen: false,
+  question: '',
+  generatedSql: null,
+  thinking: null,
+  summary: null,
+  isGenerating: false,
+  error: null,
+  conversationHistory: [],
+  overlayTop: 0,
+  selectionEndLine: 0,
+};
+
 interface SqlEditorProps {
   schema: DatabaseSchema;
   executeQuery: (sql: string) => Promise<QueryResult>;
   generateSql: (question: string, schema: DatabaseSchema) => Promise<string>;
+  generateSqlWithThinking: (
+    question: string,
+    schema: DatabaseSchema,
+    conversationHistory?: Array<{ role: string; content: string }>
+  ) => Promise<GenerateSqlResult>;
+  onOpenPipelineWizard?: () => void;
 }
 
 /** Extract the query at cursor position or selected text */
@@ -140,15 +186,16 @@ function cleanTodoText(text: string): string {
     .join(' ');
 }
 
-export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps) {
+export function SqlEditor({ schema, executeQuery, generateSql, generateSqlWithThinking, onOpenPipelineWizard }: SqlEditorProps) {
   const [content, setContent] = useState(loadContent);
   const [results, setResults] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [converting, setConverting] = useState(false);
   const [expandedResults, setExpandedResults] = useState(false);
   const [lastQuery, setLastQuery] = useState<string>('');
+  const [inlineChat, setInlineChat] = useState<InlineChatState>(INITIAL_CHAT_STATE);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Ref to hold latest action handlers - avoids stale closures in Monaco actions
   const handlersRef = useRef<ActionHandlers | null>(null);
@@ -164,7 +211,16 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
     }
   }, []);
 
-  /** Convert selected TODO/natural language to SQL */
+  /** Get the pixel top offset for an editor line */
+  const getOverlayTop = useCallback((lineNumber: number): number => {
+    if (!editorRef.current) return 100;
+    const editorTop = editorRef.current.getTopForLineNumber(lineNumber);
+    const scrollTop = editorRef.current.getScrollTop();
+    // Position below the selection, capped at a reasonable position
+    return Math.min(editorTop - scrollTop + 40, 200);
+  }, []);
+
+  /** Convert selected TODO/natural language to SQL with inline review */
   const handleConvertToSql = useCallback(async () => {
     if (!editorRef.current) return;
 
@@ -180,46 +236,123 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
       return;
     }
 
-    setConverting(true);
+    const selection = editorRef.current.getSelection();
+    const endLine = selection?.endLineNumber || 1;
+    const overlayTop = getOverlayTop(endLine);
+
+    // Open inline chat in generating state
+    setInlineChat({
+      isOpen: true,
+      question,
+      generatedSql: null,
+      thinking: null,
+      summary: null,
+      isGenerating: true,
+      error: null,
+      conversationHistory: [],
+      overlayTop,
+      selectionEndLine: endLine,
+    });
     setError(null);
 
     try {
-      const sql = await generateSql(question, schema);
-
-      // Insert generated SQL after the selection
-      const model = editorRef.current.getModel();
-      const selection = editorRef.current.getSelection();
-      if (!model || !selection) return;
-
-      const endLine = selection.endLineNumber;
-      const lineContent = model.getLineContent(endLine);
-      const insertPosition = { lineNumber: endLine, column: lineContent.length + 1 };
-
-      // Insert newlines and the generated SQL
-      const textToInsert = `\n\n${sql};\n`;
-
-      editorRef.current.executeEdits('convert-to-sql', [{
-        range: {
-          startLineNumber: insertPosition.lineNumber,
-          startColumn: insertPosition.column,
-          endLineNumber: insertPosition.lineNumber,
-          endColumn: insertPosition.column,
-        },
-        text: textToInsert,
-      }]);
-
-      // Move cursor to end of inserted SQL
-      const newPosition = model.getPositionAt(
-        model.getOffsetAt(insertPosition) + textToInsert.length
-      );
-      editorRef.current.setPosition(newPosition);
-      editorRef.current.focus();
+      const result = await generateSqlWithThinking(question, schema);
+      setInlineChat(prev => ({
+        ...prev,
+        generatedSql: result.response,
+        thinking: result.thinking,
+        summary: result.summary,
+        isGenerating: false,
+        conversationHistory: [
+          { role: 'user', content: question },
+          { role: 'assistant', content: result.response },
+        ],
+      }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate SQL');
-    } finally {
-      setConverting(false);
+      setInlineChat(prev => ({
+        ...prev,
+        isGenerating: false,
+        error: err instanceof Error ? err.message : 'Failed to generate SQL',
+      }));
     }
-  }, [generateSql, schema]);
+  }, [generateSqlWithThinking, schema, getOverlayTop]);
+
+  /** Handle accepting the generated SQL */
+  const handleAcceptSql = useCallback((sql: string) => {
+    if (!editorRef.current) return;
+
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    const endLine = inlineChat.selectionEndLine;
+    const lineContent = model.getLineContent(endLine);
+    const insertPosition = { lineNumber: endLine, column: lineContent.length + 1 };
+
+    // Insert newlines and the generated SQL
+    const textToInsert = `\n\n${sql};\n`;
+
+    editorRef.current.executeEdits('convert-to-sql', [{
+      range: {
+        startLineNumber: insertPosition.lineNumber,
+        startColumn: insertPosition.column,
+        endLineNumber: insertPosition.lineNumber,
+        endColumn: insertPosition.column,
+      },
+      text: textToInsert,
+    }]);
+
+    // Move cursor to end of inserted SQL
+    const newPosition = model.getPositionAt(
+      model.getOffsetAt(insertPosition) + textToInsert.length
+    );
+    editorRef.current.setPosition(newPosition);
+    editorRef.current.focus();
+
+    // Close inline chat
+    setInlineChat(INITIAL_CHAT_STATE);
+  }, [inlineChat.selectionEndLine]);
+
+  /** Handle rejecting / closing the inline chat */
+  const handleRejectSql = useCallback(() => {
+    setInlineChat(INITIAL_CHAT_STATE);
+    editorRef.current?.focus();
+  }, []);
+
+  /** Handle refining the SQL with a follow-up message */
+  const handleRefineSql = useCallback(async (message: string) => {
+    setInlineChat(prev => ({
+      ...prev,
+      isGenerating: true,
+      error: null,
+    }));
+
+    try {
+      const history = [
+        ...inlineChat.conversationHistory,
+        { role: 'user', content: message },
+      ];
+
+      const result = await generateSqlWithThinking(message, schema, history);
+
+      setInlineChat(prev => ({
+        ...prev,
+        generatedSql: result.response,
+        thinking: result.thinking,
+        summary: result.summary,
+        isGenerating: false,
+        conversationHistory: [
+          ...history,
+          { role: 'assistant', content: result.response },
+        ],
+      }));
+    } catch (err) {
+      setInlineChat(prev => ({
+        ...prev,
+        isGenerating: false,
+        error: err instanceof Error ? err.message : 'Failed to refine SQL',
+      }));
+    }
+  }, [inlineChat.conversationHistory, generateSqlWithThinking, schema]);
 
   const handleEditorMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
@@ -321,7 +454,7 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
       >
         <button
           onClick={handleRunQuery}
-          disabled={loading || converting}
+          disabled={loading || inlineChat.isGenerating}
           className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:bg-green-600/50 rounded transition flex items-center gap-1.5"
         >
           {loading ? (
@@ -335,10 +468,10 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
         </button>
         <button
           onClick={handleConvertToSql}
-          disabled={loading || converting}
+          disabled={loading || inlineChat.isOpen}
           className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 rounded transition flex items-center gap-1.5"
         >
-          {converting ? (
+          {inlineChat.isGenerating ? (
             <>
               <span className="animate-spin">⟳</span>
               Converting...
@@ -347,6 +480,17 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
             <>✨ Convert to SQL</>
           )}
         </button>
+        {onOpenPipelineWizard && (
+          <button
+            onClick={onOpenPipelineWizard}
+            disabled={loading}
+            className="px-3 py-1.5 text-sm bg-cyan-700 hover:bg-cyan-600 disabled:bg-cyan-700/50 rounded transition flex items-center gap-1.5"
+            title="Build a data pipeline of layered SQL views"
+          >
+            <Workflow className="w-4 h-4" />
+            Pipeline Wizard
+          </button>
+        )}
         <span className="text-xs text-gray-500">
           Ctrl+Enter: run | Ctrl+Shift+Enter: convert
         </span>
@@ -357,8 +501,8 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
         )}
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 min-h-0">
+      {/* Editor + Inline Chat overlay */}
+      <div className="flex-1 min-h-0 relative" ref={editorContainerRef}>
         <Editor
           height="100%"
           defaultLanguage="sql"
@@ -377,6 +521,22 @@ export function SqlEditor({ schema, executeQuery, generateSql }: SqlEditorProps)
             suggestOnTriggerCharacters: true,
           }}
         />
+
+        {/* Inline SQL Chat overlay */}
+        {inlineChat.isOpen && (
+          <InlineSqlChat
+            question={inlineChat.question}
+            generatedSql={inlineChat.generatedSql}
+            thinking={inlineChat.thinking}
+            summary={inlineChat.summary}
+            isGenerating={inlineChat.isGenerating}
+            error={inlineChat.error}
+            onAccept={handleAcceptSql}
+            onReject={handleRejectSql}
+            onRefine={handleRefineSql}
+            top={inlineChat.overlayTop}
+          />
+        )}
       </div>
 
       {/* Results Panel */}
