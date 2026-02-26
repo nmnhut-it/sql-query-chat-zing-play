@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDuckDB, useAI, useTutorial } from './hooks';
 import { SimpleChat } from './components/chat/SimpleChat';
 import { SqlEditor } from './components/sql-editor';
+import { PipelineWizard } from './components/sql-editor/PipelineWizard';
 import { Tutorial } from './components/tutorial';
 import { parseError } from './utils/errorHandler';
 import { DEFAULT_PROMPTS } from './constants/aiPrompts';
@@ -33,7 +34,7 @@ export default function DuckQuery() {
     getDistinctValues,
   } = useDuckDB();
 
-  const { config, setConfig, generateSql, interpretResults, generateSuggestions, explorePreliminary, fixSql, discoverData } = useAI();
+  const { config, setConfig, generateSql, generateSqlWithThinking, interpretResults, generateSuggestions, explorePreliminary, fixSql, discoverData } = useAI();
   const tutorial = useTutorial();
 
   // Settings tabs
@@ -52,6 +53,7 @@ export default function DuckQuery() {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([]);
+  const [showPipelineWizard, setShowPipelineWizard] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load suggestions when schema is ready
@@ -405,6 +407,8 @@ export default function DuckQuery() {
                 schema={schema}
                 executeQuery={executeQuery}
                 generateSql={generateSql}
+                generateSqlWithThinking={generateSqlWithThinking}
+                onOpenPipelineWizard={() => setShowPipelineWizard(true)}
               />
             )}
           </div>
@@ -416,6 +420,16 @@ export default function DuckQuery() {
           onTabChange={(tab: RequiredTab) => setMainTab(tab === 'editor' ? 'editor' : 'chat')}
           onStepEnter={handleStepEnter}
         />
+
+        {/* Pipeline Wizard modal */}
+        {showPipelineWizard && (
+          <PipelineWizard
+            schema={schema}
+            executeQuery={executeQuery}
+            generateSqlWithThinking={generateSqlWithThinking}
+            onClose={() => setShowPipelineWizard(false)}
+          />
+        )}
 
         {/* Settings modal */}
         {showSettings && (
