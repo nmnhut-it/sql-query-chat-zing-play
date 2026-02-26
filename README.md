@@ -9,6 +9,10 @@ An AI-powered SQL query interface built with DuckDB-Wasm and OpenAI.
 - **✨ Fix with AI**: Automatically correct failing SQL queries using AI.
 - **CSV Import**: Import your own data and query it immediately.
 - **History & Export**: Keep track of your queries and export results to CSV.
+- **SQL Editor with Tabs**: Multi-tab Monaco editor with independent query results per tab. Scratch tab persists across sessions.
+- **Pipeline Wizard**: Chat-driven wizard to build layered SQL view pipelines (raw → cleaned → enriched → final). Create views step-by-step with AI, then open results in editor tabs.
+- **Inline SQL Chat**: Select a TODO comment and convert it to SQL with AI assistance, with inline review and refinement.
+- **Local LLM Support**: Works with local OpenAI-compatible models. Includes retry logic, tool call parsing, and SQL validation with auto-nudge.
 
 ## Getting Started
 

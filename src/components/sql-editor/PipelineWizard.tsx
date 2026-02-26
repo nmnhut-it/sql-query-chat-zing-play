@@ -13,9 +13,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X, Send, Play, Check, Trash2, Copy, ChevronDown, ChevronRight,
-  Workflow, Layers, RefreshCw, Plus, FolderOpen, FileText, AlertCircle,
+  Workflow, Layers, RefreshCw, Plus, FolderOpen, AlertCircle, ExternalLink,
 } from 'lucide-react';
-import type { QueryResult, DatabaseSchema } from '../../types';
+import type { QueryResult, DatabaseSchema, PipelineTabRequest } from '../../types';
 import type { GenerateSqlResult } from '../../hooks/useAI';
 import { ThinkingBlock, ThinkingIndicator } from '../chat/ThinkingBlock';
 import { CompactResults } from '../chat/CompactResults';
@@ -62,6 +62,9 @@ interface SavedPipeline {
   layer_count: number;
 }
 
+/** Row limit for pipeline view queries opened in editor */
+const PIPELINE_QUERY_ROW_LIMIT = 50;
+
 interface PipelineWizardProps {
   schema: DatabaseSchema;
   executeQuery: (sql: string) => Promise<QueryResult>;
@@ -72,6 +75,8 @@ interface PipelineWizardProps {
   ) => Promise<GenerateSqlResult>;
   onClose: () => void;
   onRefreshSchema?: () => Promise<void>;
+  /** Open pipeline results as tabs in the SQL editor */
+  onOpenInEditor?: (tabs: PipelineTabRequest[]) => void;
 }
 
 /** Wizard view modes */
@@ -136,7 +141,7 @@ async function ensurePipelineTables(executeQuery: (sql: string) => Promise<Query
   `);
 }
 
-export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, onClose, onRefreshSchema }: PipelineWizardProps) {
+export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, onClose, onRefreshSchema, onOpenInEditor }: PipelineWizardProps) {
   const [view, setView] = useState<WizardView>('manager');
   const [messages, setMessages] = useState<WizardMessage[]>([]);
   const [layers, setLayers] = useState<PipelineLayer[]>([]);
@@ -154,8 +159,6 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
   const [pipelinesLoading, setPipelinesLoading] = useState(true);
   const [dbReady, setDbReady] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState('');
-  const [report, setReport] = useState<{ layerName: string; result: QueryResult }[] | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
 
   // Initialize persistence tables and load saved pipelines
   useEffect(() => {
@@ -234,7 +237,6 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
       setLayers([]);
       setMessages([]);
       setNewPipelineName('');
-      setReport(null);
       setView('editor');
       await loadPipelines();
     } catch (err) {
@@ -272,7 +274,6 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
         content: `Resumed pipeline "${pipeline?.name}" with ${loadedLayers.length} layer(s).`,
         timestamp: Date.now(),
       }]);
-      setReport(null);
 
       // Expand all layers by default
       const expanded: Record<string, boolean> = {};
@@ -565,44 +566,19 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
     }
   }, [layers, handleCreateView]);
 
-  /** Run the entire pipeline and produce a report */
-  const handleRunPipeline = useCallback(async () => {
-    setReportLoading(true);
-    setReport(null);
-    const results: { layerName: string; result: QueryResult }[] = [];
+  /** Open created layers as tabs in the SQL editor */
+  const handleOpenInEditor = useCallback(() => {
+    if (!onOpenInEditor) return;
 
-    try {
-      for (const layer of layers) {
-        // Ensure the view is created
-        if (!layer.created && layer.confirmed) {
-          await handleCreateView(layer.id);
-        }
+    const createdLayers = layers.filter(l => l.created);
+    const tabRequests: PipelineTabRequest[] = createdLayers.map(layer => ({
+      label: layer.name,
+      sql: `SELECT * FROM ${layer.name} LIMIT ${PIPELINE_QUERY_ROW_LIMIT}`,
+      autoRun: true,
+    }));
 
-        if (layer.created || layer.confirmed) {
-          try {
-            const result = await executeQuery(`SELECT * FROM ${layer.name} LIMIT 50`);
-            results.push({ layerName: layer.name, result });
-          } catch {
-            // Skip layers that fail
-          }
-        }
-      }
-
-      setReport(results);
-
-      const sysMsg: WizardMessage = {
-        id: Date.now().toString(),
-        role: 'system',
-        content: `Pipeline report generated: ${results.length} layer(s) with data.`,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, sysMsg]);
-    } catch (err) {
-      console.error('Pipeline run failed:', err);
-    } finally {
-      setReportLoading(false);
-    }
-  }, [layers, executeQuery, handleCreateView]);
+    onOpenInEditor(tabRequests);
+  }, [layers, onOpenInEditor]);
 
   // ─── Manager View ────────────────────────────────────────
   if (view === 'manager') {
@@ -747,14 +723,16 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
                   <Play className="w-3 h-3" />
                   Create All
                 </button>
-                <button
-                  onClick={handleRunPipeline}
-                  disabled={reportLoading || layers.filter(l => l.created).length === 0}
-                  className="px-3 py-1 text-xs bg-blue-700 hover:bg-blue-600 disabled:bg-blue-700/30 rounded transition flex items-center gap-1.5"
-                >
-                  <FileText className="w-3 h-3" />
-                  {reportLoading ? 'Running...' : 'Run & Report'}
-                </button>
+                {onOpenInEditor && (
+                  <button
+                    onClick={handleOpenInEditor}
+                    disabled={layers.filter(l => l.created).length === 0}
+                    className="px-3 py-1 text-xs bg-blue-700 hover:bg-blue-600 disabled:bg-blue-700/30 rounded transition flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Open in Editor
+                  </button>
+                )}
               </>
             )}
             <button
@@ -998,24 +976,6 @@ export function PipelineWizard({ schema, executeQuery, generateSqlWithThinking, 
                 ))
               )}
 
-              {/* Report section */}
-              {report && report.length > 0 && (
-                <div className="mt-4 border-t border-gray-700 pt-3">
-                  <h4 className="text-xs font-semibold text-blue-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                    <FileText className="w-3 h-3" />
-                    Pipeline Report
-                  </h4>
-                  {report.map((r, i) => (
-                    <div key={i} className="mb-3">
-                      <div className="text-xs font-medium text-gray-300 mb-1">{r.layerName}</div>
-                      <div className="text-[10px] text-gray-500 mb-1">{r.result.rowCount} rows</div>
-                      <div className="max-h-32 overflow-auto">
-                        <CompactResults results={r.result} onExpand={() => {}} maxRows={5} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Pipeline visualization (simple) */}

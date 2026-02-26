@@ -133,3 +133,23 @@ export interface SqlBlockProps {
   onEdit?: (sql: string) => void;
   collapsed?: boolean;
 }
+
+/** A single tab in the SQL editor */
+export interface EditorTab {
+  id: string;
+  label: string;
+  content: string;
+  /** Whether this tab can be closed (scratch tab cannot) */
+  closable: boolean;
+  results: QueryResult | null;
+  error: string | null;
+  loading: boolean;
+  lastQuery: string;
+}
+
+/** Request from PipelineWizard to open tabs in the SQL editor */
+export interface PipelineTabRequest {
+  label: string;
+  sql: string;
+  autoRun: boolean;
+}

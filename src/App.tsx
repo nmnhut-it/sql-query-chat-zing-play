@@ -15,7 +15,7 @@ import { TutorialStepId, TUTORIAL_TARGET_ATTR } from './constants/tutorialSteps'
 import type { RequiredTab } from './constants/tutorialSteps';
 import { DEMO_SQL, buildDemoMessages } from './constants/tutorialDemo';
 import { HelpCircle, RefreshCw } from 'lucide-react';
-import type { ChatMessage, HistoryEntry } from './types';
+import type { ChatMessage, HistoryEntry, PipelineTabRequest } from './types';
 
 /** Main content tabs */
 type MainTab = 'chat' | 'editor';
@@ -55,6 +55,7 @@ export default function DuckQuery() {
   const [importProgress, setImportProgress] = useState(0);
   const [demoMessages, setDemoMessages] = useState<ChatMessage[]>([]);
   const [showPipelineWizard, setShowPipelineWizard] = useState(false);
+  const [pendingEditorTabs, setPendingEditorTabs] = useState<PipelineTabRequest[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load suggestions when schema is ready
@@ -160,6 +161,18 @@ export default function DuckQuery() {
       console.error('Failed to refresh suggestions:', err);
     }
   }, [config.apiKey, tables.length, schema, generateSuggestions]);
+
+  /** Open pipeline results as tabs in the SQL editor */
+  const handleOpenInEditor = useCallback((tabs: PipelineTabRequest[]) => {
+    setPendingEditorTabs(tabs);
+    setMainTab('editor');
+    setShowPipelineWizard(false);
+  }, []);
+
+  /** Clear pending tabs after SqlEditor consumes them */
+  const handleTabsConsumed = useCallback(() => {
+    setPendingEditorTabs([]);
+  }, []);
 
   /** Triggers demo actions when entering specific tutorial steps */
   const handleStepEnter = useCallback(async (stepId: TutorialStepId) => {
@@ -420,6 +433,8 @@ export default function DuckQuery() {
                 generateSql={generateSql}
                 generateSqlWithThinking={generateSqlWithThinking}
                 onOpenPipelineWizard={() => setShowPipelineWizard(true)}
+                pendingTabs={pendingEditorTabs}
+                onTabsConsumed={handleTabsConsumed}
               />
             )}
           </div>
@@ -440,6 +455,7 @@ export default function DuckQuery() {
             generateSqlWithThinking={generateSqlWithThinking}
             onClose={() => setShowPipelineWizard(false)}
             onRefreshSchema={refreshSchema}
+            onOpenInEditor={handleOpenInEditor}
           />
         )}
 
