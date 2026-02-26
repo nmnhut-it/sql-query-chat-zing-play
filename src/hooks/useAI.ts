@@ -8,6 +8,8 @@ import type { AIConfig, DatabaseSchema, QueryResult } from '../types';
 import { parseApiError, parseNetworkError } from '../utils/errorHandler';
 import { safeJsonForApi } from '../utils/serialization';
 import { STORAGE_KEYS, DEFAULT_PROMPTS } from '../constants/aiPrompts';
+import { isCloudApiUrl, parseLocalLlmContent, extractContentFromToolCalls, extractContentFromApiToolCalls } from '../utils/llmResponseSanitizer';
+import { isValidSql } from '../utils/sqlValidator';
 
 /** Result from SQL generation including thinking/planning and SQL summary */
 export interface GenerateSqlResult {
@@ -29,6 +31,12 @@ interface UseAIReturn {
 }
 
 const STORAGE_KEY = STORAGE_KEYS.AI_CONFIG;
+const API_MAX_RETRIES = 3;
+const API_RETRY_DELAY_MS = 1000;
+const SQL_GENERATION_MAX_ATTEMPTS = 2;
+
+/** Nudge appended when model returns non-SQL text instead of a query */
+const SQL_NUDGE_MESSAGE = 'Please respond with ONLY the raw SQL query. No descriptions, no titles, no markdown. Just the SQL starting with SELECT, WITH, CREATE, etc.';
 
 /** Load config from environment variables */
 const getEnvConfig = (): Partial<AIConfig> => ({
@@ -116,43 +124,92 @@ export const useAI = (): UseAIReturn => {
     setConfigState((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  /** Make API call with error handling */
+  /** Make a single API request (no retry) */
+  const callApiOnce = useCallback(
+    async (messages: Array<{ role: string; content: string }>, temperature: number): Promise<string> => {
+      const isLocal = !isCloudApiUrl(config.apiUrl);
+      const response = await fetch(config.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          temperature,
+          // Prevent local models from hallucinating tool calls
+          ...(isLocal && { tool_choice: 'none' }),
+        }),
+      });
+
+      if (!response.ok) {
+        const error = parseApiError(response.status);
+        throw new Error(error.message);
+      }
+
+      const data = await response.json();
+      const msg = data.choices?.[0]?.message;
+      const rawContent = msg?.content;
+
+      if (isCloudApiUrl(config.apiUrl)) {
+        if (rawContent == null) {
+          throw new Error('AI returned empty response');
+        }
+        return rawContent.trim();
+      }
+
+      // Local model: check structured tool_calls first (hallucinated tool usage)
+      if (rawContent == null && msg?.tool_calls?.length) {
+        const fromApi = extractContentFromApiToolCalls(msg.tool_calls);
+        if (fromApi) return fromApi;
+      }
+
+      // Local model: parse inline tool call tags from content
+      const { text, toolCalls } = parseLocalLlmContent(rawContent ?? '');
+      if (text) return text;
+      if (toolCalls.length > 0) {
+        const extracted = extractContentFromToolCalls(toolCalls);
+        if (extracted) return extracted;
+      }
+      if (rawContent?.trim()) return rawContent.trim();
+      throw new Error('AI returned empty response');
+    },
+    [config]
+  );
+
+  /** Make API call with retry and error handling */
   const callApi = useCallback(
     async (messages: Array<{ role: string; content: string }>, temperature = 0): Promise<string> => {
       if (!config.apiKey) {
         throw new Error('API key not configured');
       }
 
-      try {
-        const response = await fetch(config.apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: config.model,
-            messages,
-            temperature,
-          }),
-        });
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= API_MAX_RETRIES; attempt++) {
+        try {
+          return await callApiOnce(messages, temperature);
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
 
-        if (!response.ok) {
-          const error = parseApiError(response.status);
-          throw new Error(error.message);
-        }
+          if (err instanceof TypeError && err.message.includes('fetch')) {
+            lastError = new Error(parseNetworkError(err).message);
+          }
 
-        const data = await response.json();
-        return data.choices[0].message.content.trim();
-      } catch (err) {
-        if (err instanceof TypeError && err.message.includes('fetch')) {
-          const error = parseNetworkError(err);
-          throw new Error(error.message);
+          // Don't retry config errors or auth errors
+          if (lastError.message.includes('API key') || lastError.message.includes('401')) {
+            throw lastError;
+          }
+
+          if (attempt < API_MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, API_RETRY_DELAY_MS * attempt));
+          }
         }
-        throw err;
       }
+
+      throw lastError!;
     },
-    [config]
+    [config.apiKey, callApiOnce]
   );
 
   /** Generate SQL from natural language question with conversation history */
@@ -176,7 +233,18 @@ export const useAI = (): UseAIReturn => {
       ];
 
       const result = await callApi(messages);
-      return result.replace(/```sql\n?|\n?```/g, '');
+      const cleaned = result.replace(/```sql\n?|\n?```/g, '');
+
+      // If valid SQL or a conversational prefix, return as-is
+      if (isValidSql(cleaned) || cleaned.startsWith('CLARIFY:') || cleaned.startsWith('CHAT:')) {
+        return cleaned;
+      }
+
+      // Local model returned non-SQL text — retry with a nudge
+      messages.push({ role: 'assistant', content: result });
+      messages.push({ role: 'user', content: SQL_NUDGE_MESSAGE });
+      const retryResult = await callApi(messages);
+      return retryResult.replace(/```sql\n?|\n?```/g, '');
     },
     [callApi, config.customPrompts?.generateSql]
   );
@@ -204,7 +272,23 @@ export const useAI = (): UseAIReturn => {
       const { thinking, summary, rest } = parseStructuredResponse(rawResult);
       const response = rest.replace(/```sql\n?|\n?```/g, '');
 
-      return { thinking, summary, response };
+      // If valid SQL or a conversational prefix, return as-is
+      if (isValidSql(response) || response.startsWith('CLARIFY:') || response.startsWith('CHAT:')) {
+        return { thinking, summary, response };
+      }
+
+      // Local model returned non-SQL text — retry with a nudge
+      messages.push({ role: 'assistant', content: rawResult });
+      messages.push({ role: 'user', content: SQL_NUDGE_MESSAGE });
+      const retryRaw = await callApi(messages);
+      const retry = parseStructuredResponse(retryRaw);
+      const retryResponse = retry.rest.replace(/```sql\n?|\n?```/g, '');
+
+      return {
+        thinking: retry.thinking || thinking,
+        summary: retry.summary || summary,
+        response: retryResponse,
+      };
     },
     [callApi, config.customPrompts?.generateSql]
   );

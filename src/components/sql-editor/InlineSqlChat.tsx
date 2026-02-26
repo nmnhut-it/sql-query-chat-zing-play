@@ -26,6 +26,8 @@ interface InlineSqlChatProps {
   onReject: () => void;
   /** Send a follow-up message to refine the SQL */
   onRefine: (message: string) => void;
+  /** Retry the original generation after an error */
+  onRetry: () => void;
   /** Position info for overlay placement */
   top: number;
 }
@@ -40,6 +42,7 @@ export function InlineSqlChat({
   onAccept,
   onReject,
   onRefine,
+  onRetry,
   top,
 }: InlineSqlChatProps) {
   const [refineInput, setRefineInput] = useState('');
@@ -160,7 +163,18 @@ export function InlineSqlChat({
               </div>
             </div>
           ) : error ? (
-            <div className="py-2 text-sm text-red-400">{error}</div>
+            <div className="py-2 flex items-center gap-3">
+              <span className="text-sm text-red-400">{error}</span>
+              <button
+                onClick={onRetry}
+                disabled={isGenerating}
+                className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 rounded transition flex items-center gap-1.5"
+                title="Retry generation"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
+            </div>
           ) : isEditing ? (
             <textarea
               value={editedSql}

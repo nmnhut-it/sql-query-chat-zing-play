@@ -11,7 +11,7 @@ import { CompactResults } from './CompactResults';
 import { ExpandedResults } from './ExpandedResults';
 import { ThinkingBlock, ThinkingIndicator } from './ThinkingBlock';
 import { ChatMessage, QueryResult, DatabaseSchema } from '../../types';
-import { Send, AlertCircle } from 'lucide-react';
+import { Send, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface SimpleChatProps {
   schema: DatabaseSchema;
@@ -95,46 +95,26 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading || schemaLoading) return;
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: Date.now()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
+  /** Core send logic — generates SQL for a given question using current messages as history */
+  const sendQuestion = async (question: string, currentMessages: ChatMessage[]) => {
     setIsLoading(true);
 
     try {
-      // Build conversation history (last 10 messages for context)
-      // Include SQL queries and results to give AI full context
-      const history = messages.slice(-10).map(msg => {
+      const history = currentMessages.slice(-10).map(msg => {
         if (msg.role === 'assistant' && msg.sql) {
           return {
             role: msg.role,
             content: `Generated SQL: ${msg.sql}\nResult: ${msg.content}${msg.error ? `\nError: ${msg.error}` : ''}`
           };
         }
-        return {
-          role: msg.role,
-          content: msg.content
-        };
+        return { role: msg.role, content: msg.content };
       });
 
-      // Generate SQL from user question with thinking/planning
       const currentSchema = schemaRef.current;
-      const { thinking, summary, response: sqlQuery } = await generateSqlWithThinking(input, currentSchema, history);
+      const { thinking, summary, response: sqlQuery } = await generateSqlWithThinking(question, currentSchema, history);
 
-      // Check if it's conversational or clarification (not SQL)
       if (!sqlQuery || sqlQuery.startsWith('CLARIFY:') || sqlQuery.startsWith('CHAT:')) {
         let content = sqlQuery || "I understand. How can I help you with your data?";
-
-        // Remove prefixes for display
         if (content.startsWith('CLARIFY:')) {
           content = content.substring('CLARIFY:'.length).trim();
         } else if (content.startsWith('CHAT:')) {
@@ -149,11 +129,9 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
           timestamp: Date.now()
         };
         setMessages(prev => [...prev, assistantMessage]);
-        setIsLoading(false);
         return;
       }
 
-      // Show thinking + summary + SQL but DON'T execute yet - user will click Run button
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -164,7 +142,6 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
         sql: sqlQuery,
         sqlExecuted: false
       };
-
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: unknown) {
       const errorMessage: ChatMessage = {
@@ -178,6 +155,42 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading || schemaLoading) return;
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: input,
+      timestamp: Date.now()
+    };
+
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+    setInput('');
+
+    await sendQuestion(input, updatedMessages);
+  };
+
+  /** Retry the last failed message by finding the preceding user question */
+  const handleRetry = async (errorMessageId: string) => {
+    if (isLoading) return;
+
+    const errorIndex = messages.findIndex(m => m.id === errorMessageId);
+    if (errorIndex < 1) return;
+
+    // Find the user message before the error
+    const userMsg = messages.slice(0, errorIndex).reverse().find(m => m.role === 'user');
+    if (!userMsg) return;
+
+    // Remove the error message
+    const withoutError = messages.filter(m => m.id !== errorMessageId);
+    setMessages(withoutError);
+
+    await sendQuestion(userMsg.content, withoutError);
   };
 
   return (
@@ -214,7 +227,16 @@ export const SimpleChat = ({ schema, schemaLoading, executeQuery, demoMessages }
                 {msg.error && (
                   <div className="px-3 py-2 bg-red-900/30 border border-red-700/50 rounded flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-red-300">{msg.error}</span>
+                    <span className="text-sm text-red-300 flex-1">{msg.error}</span>
+                    <button
+                      onClick={() => handleRetry(msg.id)}
+                      disabled={isLoading}
+                      className="px-2.5 py-1 text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed rounded transition flex items-center gap-1.5 flex-shrink-0"
+                      title="Retry this request"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Retry
+                    </button>
                   </div>
                 )}
 

@@ -318,6 +318,39 @@ export function SqlEditor({ schema, executeQuery, generateSql, generateSqlWithTh
     editorRef.current?.focus();
   }, []);
 
+  /** Retry the original generation after an error */
+  const handleRetrySql = useCallback(async () => {
+    const { question } = inlineChat;
+    if (!question) return;
+
+    setInlineChat(prev => ({
+      ...prev,
+      isGenerating: true,
+      error: null,
+    }));
+
+    try {
+      const result = await generateSqlWithThinking(question, schema);
+      setInlineChat(prev => ({
+        ...prev,
+        generatedSql: result.response,
+        thinking: result.thinking,
+        summary: result.summary,
+        isGenerating: false,
+        conversationHistory: [
+          { role: 'user', content: question },
+          { role: 'assistant', content: result.response },
+        ],
+      }));
+    } catch (err) {
+      setInlineChat(prev => ({
+        ...prev,
+        isGenerating: false,
+        error: err instanceof Error ? err.message : 'Failed to generate SQL',
+      }));
+    }
+  }, [inlineChat.question, generateSqlWithThinking, schema]);
+
   /** Handle refining the SQL with a follow-up message */
   const handleRefineSql = useCallback(async (message: string) => {
     setInlineChat(prev => ({
@@ -534,6 +567,7 @@ export function SqlEditor({ schema, executeQuery, generateSql, generateSqlWithTh
             onAccept={handleAcceptSql}
             onReject={handleRejectSql}
             onRefine={handleRefineSql}
+            onRetry={handleRetrySql}
             top={inlineChat.overlayTop}
           />
         )}
