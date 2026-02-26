@@ -54,6 +54,7 @@ interface PipelineLayer {
   sql: string;
   viewSql: string;
   created: boolean;
+  confirmed?: boolean;
   error?: string;
 }
 

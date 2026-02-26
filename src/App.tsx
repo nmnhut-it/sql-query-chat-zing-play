@@ -14,7 +14,7 @@ import { DEFAULT_PROMPTS } from './constants/aiPrompts';
 import { TutorialStepId, TUTORIAL_TARGET_ATTR } from './constants/tutorialSteps';
 import type { RequiredTab } from './constants/tutorialSteps';
 import { DEMO_SQL, buildDemoMessages } from './constants/tutorialDemo';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, RefreshCw } from 'lucide-react';
 import type { ChatMessage, HistoryEntry } from './types';
 
 /** Main content tabs */
@@ -29,6 +29,7 @@ export default function DuckQuery() {
     schema,
     schemaLoading,
     executeQuery,
+    refreshSchema,
     loadSampleData,
     importCsv,
     getDistinctValues,
@@ -290,9 +291,19 @@ export default function DuckQuery() {
               className="flex-1 overflow-auto p-3"
               {...{ [TUTORIAL_TARGET_ATTR]: TutorialStepId.SCHEMA }}
             >
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Schema
-              </h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Schema
+                </h2>
+                <button
+                  onClick={refreshSchema}
+                  disabled={schemaLoading}
+                  className="p-1 text-gray-500 hover:text-blue-400 disabled:text-gray-700 transition"
+                  title="Refresh schema"
+                >
+                  <RefreshCw className={`w-3 h-3 ${schemaLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
               {tables.length === 0 ? (
                 <p className="text-sm text-gray-500">No tables yet</p>
               ) : (
@@ -428,6 +439,7 @@ export default function DuckQuery() {
             executeQuery={executeQuery}
             generateSqlWithThinking={generateSqlWithThinking}
             onClose={() => setShowPipelineWizard(false)}
+            onRefreshSchema={refreshSchema}
           />
         )}
 

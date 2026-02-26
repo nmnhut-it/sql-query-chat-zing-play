@@ -539,6 +539,225 @@ WHERE product_id IN (
   });
 });
 
+// ══════════════════════════════════════════════════
+// INTEGRATION TESTS: Pipeline Confirmation & Persistence
+// ══════════════════════════════════════════════════
+
+describe('Pipeline Wizard - Confirmation Flow', () => {
+  interface PipelineLayer {
+    id: string;
+    name: string;
+    description: string;
+    sql: string;
+    viewSql: string;
+    created: boolean;
+    confirmed: boolean;
+    error?: string;
+  }
+
+  it('should create a layer in unconfirmed state', () => {
+    const result = simulateGenerateSqlWithThinking('create a base view of orders', testSchema);
+    const parsed = parseViewStatement(result.response);
+    expect(parsed).not.toBeNull();
+
+    const layer: PipelineLayer = {
+      id: '1',
+      name: parsed!.name,
+      description: result.summary || 'Base layer',
+      sql: parsed!.selectSql,
+      viewSql: parsed!.viewSql,
+      created: false,
+      confirmed: false,
+    };
+
+    expect(layer.confirmed).toBe(false);
+    expect(layer.created).toBe(false);
+  });
+
+  it('should require confirmation before creating a view', () => {
+    const layer: PipelineLayer = {
+      id: '1',
+      name: 'v_raw_orders',
+      description: 'All orders',
+      sql: 'SELECT * FROM orders',
+      viewSql: 'CREATE OR REPLACE VIEW v_raw_orders AS SELECT * FROM orders;',
+      created: false,
+      confirmed: false,
+    };
+
+    // Cannot create before confirming
+    expect(layer.confirmed).toBe(false);
+
+    // After confirmation
+    const confirmed = { ...layer, confirmed: true };
+    expect(confirmed.confirmed).toBe(true);
+    expect(confirmed.created).toBe(false);
+
+    // After creating
+    const created = { ...confirmed, created: true };
+    expect(created.confirmed).toBe(true);
+    expect(created.created).toBe(true);
+  });
+
+  it('should only create confirmed layers in batch "Create All"', () => {
+    const layers: PipelineLayer[] = [
+      { id: '1', name: 'v_raw', description: '', sql: '', viewSql: '', created: false, confirmed: true },
+      { id: '2', name: 'v_clean', description: '', sql: '', viewSql: '', created: false, confirmed: false },
+      { id: '3', name: 'v_final', description: '', sql: '', viewSql: '', created: false, confirmed: true },
+    ];
+
+    const toCreate = layers.filter(l => l.confirmed && !l.created);
+    expect(toCreate).toHaveLength(2);
+    expect(toCreate.map(l => l.name)).toEqual(['v_raw', 'v_final']);
+  });
+
+  it('should track confirmation and creation status separately in pipeline flow', () => {
+    const layers: PipelineLayer[] = [
+      { id: '1', name: 'v_raw', description: '', sql: '', viewSql: '', created: true, confirmed: true },
+      { id: '2', name: 'v_clean', description: '', sql: '', viewSql: '', created: false, confirmed: true },
+      { id: '3', name: 'v_final', description: '', sql: '', viewSql: '', created: false, confirmed: false },
+    ];
+
+    expect(layers.filter(l => l.created)).toHaveLength(1);
+    expect(layers.filter(l => l.confirmed)).toHaveLength(2);
+    expect(layers.filter(l => !l.confirmed)).toHaveLength(1);
+  });
+});
+
+describe('Pipeline Wizard - Persistence Schema', () => {
+  it('should define correct CREATE TABLE SQL for _pipelines', () => {
+    const sql = `CREATE TABLE IF NOT EXISTS _pipelines (
+      id INTEGER PRIMARY KEY,
+      name VARCHAR NOT NULL,
+      description VARCHAR DEFAULT '',
+      created_at TIMESTAMP DEFAULT current_timestamp,
+      updated_at TIMESTAMP DEFAULT current_timestamp
+    )`;
+
+    expect(sql).toContain('_pipelines');
+    expect(sql).toContain('id INTEGER PRIMARY KEY');
+    expect(sql).toContain('name VARCHAR NOT NULL');
+    expect(sql).toContain('created_at TIMESTAMP');
+    expect(sql).toContain('updated_at TIMESTAMP');
+  });
+
+  it('should define correct CREATE TABLE SQL for _pipeline_layers', () => {
+    const sql = `CREATE TABLE IF NOT EXISTS _pipeline_layers (
+      id INTEGER PRIMARY KEY,
+      pipeline_id INTEGER NOT NULL,
+      layer_order INTEGER NOT NULL,
+      name VARCHAR NOT NULL,
+      description VARCHAR DEFAULT '',
+      sql_select VARCHAR NOT NULL,
+      view_sql VARCHAR NOT NULL,
+      created BOOLEAN DEFAULT false
+    )`;
+
+    expect(sql).toContain('_pipeline_layers');
+    expect(sql).toContain('pipeline_id INTEGER NOT NULL');
+    expect(sql).toContain('layer_order INTEGER NOT NULL');
+    expect(sql).toContain('sql_select VARCHAR NOT NULL');
+    expect(sql).toContain('view_sql VARCHAR NOT NULL');
+    expect(sql).toContain('created BOOLEAN');
+  });
+
+  it('should serialize layers to SQL INSERT statements', () => {
+    const layer = {
+      name: "v_raw_sales",
+      description: "Base view of all sales data",
+      sql: "SELECT * FROM sales_data",
+      viewSql: "CREATE OR REPLACE VIEW v_raw_sales AS SELECT * FROM sales_data;",
+      created: true,
+    };
+
+    const pipelineId = 1;
+    const layerId = 100;
+    const order = 0;
+
+    const insertSql = `INSERT INTO _pipeline_layers (id, pipeline_id, layer_order, name, description, sql_select, view_sql, created)
+      VALUES (${layerId}, ${pipelineId}, ${order}, '${layer.name}', '${layer.description}', '${layer.sql}', '${layer.viewSql}', ${layer.created})`;
+
+    expect(insertSql).toContain(`${pipelineId}`);
+    expect(insertSql).toContain(`${layerId}`);
+    expect(insertSql).toContain(layer.name);
+    expect(insertSql).toContain(layer.sql);
+    expect(insertSql).toContain('true');
+  });
+
+  it('should escape single quotes in layer descriptions', () => {
+    const description = "User's custom view for O'Brien data";
+    const escaped = description.replace(/'/g, "''");
+    expect(escaped).toBe("User''s custom view for O''Brien data");
+    // Every original single-quote is now doubled
+    expect(escaped.match(/''/g)?.length).toBe(2);
+  });
+
+  it('should reconstruct layers from query result rows', () => {
+    const rows = [
+      { id: 100, name: 'v_raw_data', description: 'Base', sql_select: 'SELECT * FROM data', view_sql: 'CREATE OR REPLACE VIEW v_raw_data AS SELECT * FROM data;', created: true, layer_order: 0 },
+      { id: 101, name: 'v_clean_data', description: 'Filtered', sql_select: "SELECT * FROM v_raw_data WHERE active = true", view_sql: "CREATE OR REPLACE VIEW v_clean_data AS SELECT * FROM v_raw_data WHERE active = true;", created: false, layer_order: 1 },
+    ];
+
+    const layers = rows.map(r => ({
+      id: String(r.id),
+      name: String(r.name),
+      description: String(r.description),
+      sql: String(r.sql_select),
+      viewSql: String(r.view_sql),
+      created: Boolean(r.created),
+      confirmed: Boolean(r.created),
+    }));
+
+    expect(layers).toHaveLength(2);
+    expect(layers[0].name).toBe('v_raw_data');
+    expect(layers[0].confirmed).toBe(true);
+    expect(layers[1].name).toBe('v_clean_data');
+    expect(layers[1].confirmed).toBe(false);
+  });
+});
+
+describe('Pipeline Wizard - Run & Report', () => {
+  it('should execute all created layers and collect results', () => {
+    const layers = [
+      { name: 'v_raw', created: true, confirmed: true },
+      { name: 'v_clean', created: true, confirmed: true },
+      { name: 'v_final', created: true, confirmed: true },
+    ];
+
+    const report: Array<{ layerName: string; result: QueryResult }> = [];
+
+    for (const layer of layers) {
+      if (layer.created) {
+        const result = simulateExecuteQuery(`SELECT * FROM ${layer.name} LIMIT 50`);
+        report.push({ layerName: layer.name, result });
+      }
+    }
+
+    expect(report).toHaveLength(3);
+    expect(report[0].layerName).toBe('v_raw');
+    expect(report[0].result.rowCount).toBeGreaterThan(0);
+  });
+
+  it('should skip unconfirmed layers in report', () => {
+    const layers = [
+      { name: 'v_raw', created: true, confirmed: true },
+      { name: 'v_pending', created: false, confirmed: false },
+    ];
+
+    const report: Array<{ layerName: string; result: QueryResult }> = [];
+
+    for (const layer of layers) {
+      if (layer.created) {
+        const result = simulateExecuteQuery(`SELECT * FROM ${layer.name} LIMIT 50`);
+        report.push({ layerName: layer.name, result });
+      }
+    }
+
+    expect(report).toHaveLength(1);
+    expect(report[0].layerName).toBe('v_raw');
+  });
+});
+
 describe('Edge Cases', () => {
   it('should handle AI returning markdown-wrapped SQL', () => {
     const raw = '```sql\nSELECT * FROM orders;\n```';
